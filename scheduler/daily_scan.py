@@ -30,17 +30,29 @@ from config import ATR_STOP_MULT, RISK_PER_TRADE, DEFAULT_CAPITAL, MAX_POSITIONS
 from data.downloader import download_ohlcv
 from data.universe import get_universe
 from data.market_filter import is_bull_market, get_market_status
-from indicators.technical import add_indicators
-from strategy.momentum import generate_signals
 from alerts.notifier import send_message, send_signals
 from signals.history import save_daily_signals
 
 
-def run_daily_scan(capital: float = DEFAULT_CAPITAL):
+def _get_pipeline(strategy: str):
+    if strategy == "canslim":
+        from indicators.canslim_indicators import add_canslim_indicators
+        from strategy.canslim import generate_signals
+        return add_canslim_indicators, generate_signals
+    else:
+        from indicators.technical import add_indicators
+        from strategy.momentum import generate_signals
+        return add_indicators, generate_signals
+
+
+def run_daily_scan(capital: float = DEFAULT_CAPITAL, strategy: str = "rsi2"):
     today = date.today().strftime("%Y-%m-%d")
     scan_start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
+    strat_label = "CANSLIM" if strategy == "canslim" else "RSI(2)"
 
-    print(f"\n[Daily Scan] {today}")
+    add_ind, gen_sig = _get_pipeline(strategy)
+
+    print(f"\n[Daily Scan {strat_label}] {today}")
 
     # Filtro de mercado
     market = get_market_status()
@@ -60,16 +72,24 @@ def run_daily_scan(capital: float = DEFAULT_CAPITAL):
 
     # Obtener universo
     print("  Obteniendo universo...")
-    tickers = get_universe(use_finviz=True)
+    tickers = get_universe(use_finviz=True, strategy=strategy)
     print(f"  {len(tickers)} tickers a analizar")
+
+    # CANSLIM necesita SPY
+    spy_df = None
+    if strategy == "canslim":
+        spy_df = download_ohlcv("SPY", scan_start, today)
 
     # Escanear
     signals_found = []
     for i, t in enumerate(tickers):
         try:
             df = download_ohlcv(t, scan_start, today)
-            df = add_indicators(df)
-            df = generate_signals(df)
+            if strategy == "canslim":
+                df = add_ind(df, spy_df)
+            else:
+                df = add_ind(df)
+            df = gen_sig(df)
             last = df.iloc[-1]
             if last["signal"] == 1:
                 price = last["Close"]
@@ -82,7 +102,7 @@ def run_daily_scan(capital: float = DEFAULT_CAPITAL):
                 signals_found.append({
                     "ticker": t,
                     "close": round(price, 2),
-                    "rsi2": round(last["rsi2"], 1),
+                    "rsi2": round(last.get("rsi2", 0), 1),
                     "atr": round(atr, 2),
                     "stop_loss": round(stop, 2),
                     "acciones": shares,
@@ -99,19 +119,19 @@ def run_daily_scan(capital: float = DEFAULT_CAPITAL):
     save_daily_signals(signals_found, today)
 
     # Ordenar y limitar a TOP
-    signals_found.sort(key=lambda s: s["rsi2"])
+    signals_found.sort(key=lambda s: s.get("rsi2", 0))
     top = signals_found[:MAX_POSITIONS]
 
     print(f"\n  {len(signals_found)} señales encontradas — TOP {MAX_POSITIONS}:")
     for s in top:
-        print(f"    {s['ticker']:6s}  RSI={s['rsi2']:.1f}  ${s['close']:.2f}  {s['acciones']} acc")
+        print(f"    {s['ticker']:6s}  ${s['close']:.2f}  {s['acciones']} acc")
 
     # Enviar por Telegram
     if top:
         send_signals(top)
         print(f"\n  Alertas enviadas por Telegram.")
     else:
-        send_message(f"📋 *Scan {today}*\n\nNo hay señales de entrada hoy.")
+        send_message(f"📋 *Scan {strat_label} {today}*\n\nNo hay señales de entrada hoy.")
         print(f"\n  Sin señales. Notificación enviada.")
 
 
@@ -119,5 +139,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Scan diario automatizado")
     parser.add_argument("--capital", type=float, default=DEFAULT_CAPITAL)
+    parser.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim"],
+                        help="Estrategia: rsi2 o canslim")
     args = parser.parse_args()
-    run_daily_scan(args.capital)
+    run_daily_scan(args.capital, args.strategy)

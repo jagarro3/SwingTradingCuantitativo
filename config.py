@@ -1,6 +1,6 @@
 """
 Configuración global del sistema de swing trading.
-Estrategia: RSI(2) Trend Pullback con ATR Trailing Stop.
+Estrategias: RSI(2) Trend Pullback, CANSLIM (William O'Neil).
 Los parámetros de capital y fechas se pasan por CLI en main.py.
 """
 
@@ -34,6 +34,12 @@ DEFAULT_TICKER = "AAPL"
 # --- Comisiones ---
 COMMISSION_PCT = 0.001      # 0.1% por operación (ida y vuelta = 0.2%)
 SLIPPAGE_PCT = 0.0005       # 0.05% de slippage por ejecución
+
+# --- CANSLIM ---
+CANSLIM_HIGH_PROXIMITY = 0.85      # N: precio >= 85% del máximo 52 semanas
+CANSLIM_VOLUME_SURGE = 1.5         # S: volumen > 1.5x media 50 días
+CANSLIM_RS_THRESHOLD = 1.0         # L: relative strength > 1.0 (supera SPY)
+CANSLIM_MAX_HOLD_DAYS = 60         # CANSLIM es más position trading
 
 # --- Datos ---
 CACHE_DIR = "cache"                 # carpeta local para cachear datos descargados

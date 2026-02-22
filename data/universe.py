@@ -54,18 +54,23 @@ def get_sp500_wikipedia() -> list[str]:
     return tickers
 
 
-def get_universe(use_finviz: bool = True) -> list[str]:
+def get_universe(use_finviz: bool = True, strategy: str = "rsi2") -> list[str]:
     """
     Devuelve el universo de tickers a analizar.
 
     Args:
         use_finviz: si True, intenta usar Finviz primero
+        strategy: "rsi2" (RSI(2) Pullback) o "canslim" (CANSLIM)
 
     Returns:
         Lista de tickers (strings)
     """
     if use_finviz:
-        tickers = get_universe_finviz()
+        if strategy == "canslim":
+            from data.universe_canslim import get_universe_canslim
+            tickers = get_universe_canslim()
+        else:
+            tickers = get_universe_finviz()
         if tickers:
             return tickers
 

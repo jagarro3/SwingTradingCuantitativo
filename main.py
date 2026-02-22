@@ -40,22 +40,40 @@ from backtest.metrics import compute_metrics, print_metrics
 from reports.html_report import generate_report
 
 
+def _get_pipeline(strategy: str):
+    """Devuelve (add_indicators, generate_signals) según estrategia."""
+    if strategy == "canslim":
+        from indicators.canslim_indicators import add_canslim_indicators
+        from strategy.canslim import generate_signals as gen
+        return add_canslim_indicators, gen
+    else:
+        return add_indicators, generate_signals
+
+
 def cmd_backtest(args) -> None:
     ticker  = args.ticker.upper()
     start   = args.start
     end     = args.end
     capital = args.capital
+    strategy = args.strategy
 
-    print(f"\n[Backtest] {ticker}  {start} → {end}  capital={capital:,.0f} €")
+    strat_label = "CANSLIM" if strategy == "canslim" else "RSI(2) Pullback"
+    print(f"\n[Backtest {strat_label}] {ticker}  {start} → {end}  capital={capital:,.0f} €")
+
+    add_ind, gen_sig = _get_pipeline(strategy)
 
     print("  Descargando datos...")
     df = download_ohlcv(ticker, start, end)
 
     print("  Calculando indicadores...")
-    df = add_indicators(df)
+    if strategy == "canslim":
+        spy_df = download_ohlcv("SPY", start, end)
+        df = add_ind(df, spy_df)
+    else:
+        df = add_ind(df)
 
     print("  Generando señales...")
-    df = generate_signals(df)
+    df = gen_sig(df)
 
     print("  Ejecutando backtest...")
     result = run_backtest(df, ticker, capital)
@@ -78,20 +96,32 @@ def cmd_scan(args) -> None:
     from datetime import date, timedelta
     import pandas as pd
 
+    strategy = args.strategy
+    add_ind, gen_sig = _get_pipeline(strategy)
+    strat_label = "CANSLIM" if strategy == "canslim" else "RSI(2) Pullback"
+
     end   = date.today().strftime("%Y-%m-%d")
     start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
 
-    print(f"\n[Scanner] Obteniendo universo de acciones...")
-    tickers = get_universe(use_finviz=True)
+    print(f"\n[Scanner {strat_label}] Obteniendo universo de acciones...")
+    tickers = get_universe(use_finviz=True, strategy=strategy)
     print(f"  {len(tickers)} tickers a analizar")
+
+    # CANSLIM necesita SPY para relative strength
+    spy_df = None
+    if strategy == "canslim":
+        spy_df = download_ohlcv("SPY", start, end)
 
     signals_found = []
 
     for i, ticker in enumerate(tickers):
         try:
             df = download_ohlcv(ticker, start, end)
-            df = add_indicators(df)
-            df = generate_signals(df)
+            if strategy == "canslim":
+                df = add_ind(df, spy_df)
+            else:
+                df = add_ind(df)
+            df = gen_sig(df)
 
             last = df.iloc[-1]
             if last["signal"] == 1:
@@ -102,17 +132,47 @@ def cmd_scan(args) -> None:
                 shares = int(args.capital * RISK_PER_TRADE / risk_per_share)
                 if shares < 1:
                     shares = 1
-                signals_found.append({
-                    "ticker":       ticker,
-                    "nombre":       "",
-                    "close":        round(price, 2),
-                    "rsi2":         round(last["rsi2"], 1),
-                    "atr":          round(atr, 2),
-                    "stop_loss":    round(stop, 2),
-                    "acciones":     shares,
-                    "coste":        round(shares * price, 2),
-                    "riesgo":       round(shares * risk_per_share, 2),
-                })
+
+                if strategy == "canslim":
+                    rs = last.get("rel_strength", 0) or 0
+                    vr = last.get("vol_ratio", 0) or 0
+                    pfh = last.get("pct_from_high", 0) or 0
+                    score = last.get("canslim_score", 0) or 0
+                    signals_found.append({
+                        "ticker":       ticker,
+                        "nombre":       "",
+                        "close":        round(price, 2),
+                        "score":        int(score),
+                        "rel_strength": round(rs, 2),
+                        "vol_ratio":    round(vr, 1),
+                        "pct_from_high": round(pfh, 1),
+                        "stop_loss":    round(stop, 2),
+                        "acciones":     shares,
+                        "coste":        round(shares * price, 2),
+                        "riesgo":       round(shares * risk_per_share, 2),
+                    })
+                else:
+                    sma = last[f"sma{200}"]
+                    rsi = last["rsi2"]
+                    pct_sma = (price / sma - 1) * 100
+                    if rsi < 3:
+                        pullback = "pullback extremo"
+                    elif rsi < 7:
+                        pullback = "pullback fuerte"
+                    else:
+                        pullback = "pullback moderado"
+                    signals_found.append({
+                        "ticker":       ticker,
+                        "nombre":       "",
+                        "close":        round(price, 2),
+                        "rsi2":         round(rsi, 1),
+                        "atr":          round(atr, 2),
+                        "stop_loss":    round(stop, 2),
+                        "acciones":     shares,
+                        "coste":        round(shares * price, 2),
+                        "riesgo":       round(shares * risk_per_share, 2),
+                        "motivo":       f"RSI(2)={rsi:.1f} ({pullback}), +{pct_sma:.1f}% sobre SMA200",
+                    })
         except Exception:
             pass
 
@@ -208,12 +268,16 @@ def parse_args():
     bt.add_argument("--capital", default=DEFAULT_CAPITAL, type=float,
                     help=f"Capital inicial en € (default {DEFAULT_CAPITAL:,.0f})")
     bt.add_argument("--open",    action="store_true", help="Abrir reporte HTML en el navegador")
+    bt.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim"],
+                    help="Estrategia: rsi2 (RSI(2) Pullback) o canslim (CANSLIM)")
 
     # --- scan ---
     sc = subparsers.add_parser("scan", help="Escanear universo y mostrar señales de hoy")
     sc.add_argument("--capital", default=DEFAULT_CAPITAL, type=float,
                     help=f"Capital disponible en € (default {DEFAULT_CAPITAL:,.0f})")
     sc.add_argument("--alert", action="store_true", help="Enviar alertas por Telegram")
+    sc.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim"],
+                    help="Estrategia: rsi2 (RSI(2) Pullback) o canslim (CANSLIM)")
 
     # --- portfolio ---
     pf = subparsers.add_parser("portfolio", help="Gestionar posiciones abiertas")
