@@ -16,7 +16,7 @@ def get_universe_minervini() -> list[str]:
     Filtros aplicados:
       - 200-Day SMA: Price above SMA200
       - 50-Day SMA: Price above SMA50
-      - 52-Week High/Low: 0-30% below High (cerca de máximos)
+      - 52-Week High/Low: 0-10% below High (cerca de máximos)
       - Performance: Year Up (retorno anual positivo)
       - Average Volume: Over 500K
       - Country: USA
@@ -36,7 +36,7 @@ def get_universe_minervini() -> list[str]:
             "Price": "Over $10",
             "200-Day Simple Moving Average": "Price above SMA200",
             "50-Day Simple Moving Average": "Price above SMA50",
-            "52-Week High/Low": "0-30% below High",
+            "52-Week High/Low": "0-10% below High",
             "Performance": "Year Up",
         }
         foverview.set_filter(filters_dict=filters_dict)
