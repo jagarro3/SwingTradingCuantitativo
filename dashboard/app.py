@@ -110,42 +110,8 @@ with st.sidebar:
 
     if estrategia == "CANSLIM":
         st.markdown("*CANSLIM (William O'Neil) — growth + momentum*")
-        with st.expander("Filtros aplicados"):
-            st.markdown(
-                "**Fundamentales (Finviz):**\n"
-                "- **C** — EPS trimestral > 25%\n"
-                "- **A** — EPS 5 años > 25%\n"
-                "- **I** — Inst. ownership > 50%\n\n"
-                "**Técnicos (local):**\n"
-                f"- **N** — Precio ≥ {int(CANSLIM_HIGH_PROXIMITY*100)}% del máx. 52 sem\n"
-                f"- **S** — Volumen > {CANSLIM_VOLUME_SURGE}x media 50d\n"
-                f"- **L** — Fuerza relativa > {CANSLIM_RS_THRESHOLD} vs SPY\n"
-                f"- Close > SMA(200)\n"
-                f"- Precio ≥ ${MIN_PRICE:.0f}\n\n"
-                "**Gestión de riesgo:**\n"
-                f"- Stop: ATR × {ATR_STOP_MULT}\n"
-                f"- Max. hold: {CANSLIM_MAX_HOLD_DAYS} días\n"
-                f"- Riesgo/op: {RISK_PER_TRADE*100:.0f}% del capital"
-            )
     else:
         st.markdown("*RSI(2) Trend Pullback + ATR Trailing Stop*")
-        with st.expander("Filtros aplicados"):
-            st.markdown(
-                "**Entrada (todas a la vez):**\n"
-                f"- Close > SMA({SMA_TREND})\n"
-                f"- SMA({SMA_TREND}) en pendiente positiva (20d)\n"
-                f"- RSI(2) < {RSI_ENTRY_THRESHOLD}\n"
-                f"- Sin gap bajista > {int((1-GAP_DOWN_LIMIT)*100)}%\n"
-                f"- Precio ≥ ${MIN_PRICE:.0f}\n\n"
-                "**Salida:**\n"
-                f"- RSI(2) > {RSI_EXIT_THRESHOLD} (fortaleza)\n"
-                f"- Stop loss: ATR × {ATR_STOP_MULT}\n"
-                f"- Trailing stop: ATR × {ATR_TRAIL_MULT}\n"
-                f"- Time stop: {MAX_HOLD_DAYS} días\n\n"
-                "**Gestión de riesgo:**\n"
-                f"- Riesgo/op: {RISK_PER_TRADE*100:.0f}% del capital\n"
-                f"- Max. posiciones: {MAX_POSITIONS}"
-            )
 
     mode = st.radio("Modo", [
         "Backtest (un ticker)",
@@ -447,6 +413,41 @@ elif mode == "Scanner (universo hoy)":
             resto = df_signals.iloc[MAX_POSITIONS:]
 
             st.success(f"{len(df_signals)} señales encontradas — TOP {MAX_POSITIONS} mostradas")
+
+            # --- Filtros aplicados ---
+            with st.expander("Filtros aplicados"):
+                if estrategia == "CANSLIM":
+                    st.markdown(
+                        "**Fundamentales (Finviz):**\n"
+                        "- **C** — EPS trimestral > 25%\n"
+                        "- **A** — EPS 5 años > 25%\n"
+                        "- **I** — Inst. ownership > 50%\n\n"
+                        "**Técnicos (local):**\n"
+                        f"- **N** — Precio ≥ {int(CANSLIM_HIGH_PROXIMITY*100)}% del máx. 52 sem\n"
+                        f"- **S** — Volumen > {CANSLIM_VOLUME_SURGE}x media 50d\n"
+                        f"- **L** — Fuerza relativa > {CANSLIM_RS_THRESHOLD} vs SPY\n"
+                        f"- Close > SMA(200)\n"
+                        f"- Precio ≥ ${MIN_PRICE:.0f}\n\n"
+                        "**Gestión de riesgo:**\n"
+                        f"- Stop: ATR × {ATR_STOP_MULT} · Max. hold: {CANSLIM_MAX_HOLD_DAYS} días · "
+                        f"Riesgo/op: {RISK_PER_TRADE*100:.0f}% del capital"
+                    )
+                else:
+                    st.markdown(
+                        "**Entrada (todas a la vez):**\n"
+                        f"- Close > SMA({SMA_TREND})\n"
+                        f"- SMA({SMA_TREND}) en pendiente positiva (20d)\n"
+                        f"- RSI(2) < {RSI_ENTRY_THRESHOLD}\n"
+                        f"- Sin gap bajista > {int((1-GAP_DOWN_LIMIT)*100)}%\n"
+                        f"- Precio ≥ ${MIN_PRICE:.0f}\n\n"
+                        "**Salida:**\n"
+                        f"- RSI(2) > {RSI_EXIT_THRESHOLD} (fortaleza)\n"
+                        f"- Stop loss: ATR × {ATR_STOP_MULT} · Trailing: ATR × {ATR_TRAIL_MULT} · "
+                        f"Time stop: {MAX_HOLD_DAYS} días\n\n"
+                        "**Gestión de riesgo:**\n"
+                        f"- Riesgo/op: {RISK_PER_TRADE*100:.0f}% del capital · "
+                        f"Max. posiciones: {MAX_POSITIONS}"
+                    )
 
             # --- Exposición del TOP ---
             st.subheader("Exposición del TOP")
