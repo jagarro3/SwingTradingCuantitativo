@@ -26,7 +26,10 @@ except ImportError:
     pass
 
 from datetime import date, timedelta
-from config import ATR_STOP_MULT, RISK_PER_TRADE, DEFAULT_CAPITAL, MAX_POSITIONS
+from config import (
+    ATR_STOP_MULT, RISK_PER_TRADE, DEFAULT_CAPITAL, MAX_POSITIONS,
+    MINERVINI_ATR_STOP_MULT,
+)
 from data.downloader import download_ohlcv
 from data.universe import get_universe
 from data.market_filter import is_bull_market, get_market_status
@@ -39,6 +42,10 @@ def _get_pipeline(strategy: str):
         from indicators.canslim_indicators import add_canslim_indicators
         from strategy.canslim import generate_signals
         return add_canslim_indicators, generate_signals
+    elif strategy == "minervini":
+        from indicators.minervini_indicators import add_minervini_indicators
+        from strategy.minervini import generate_signals
+        return add_minervini_indicators, generate_signals
     else:
         from indicators.technical import add_indicators
         from strategy.momentum import generate_signals
@@ -48,7 +55,8 @@ def _get_pipeline(strategy: str):
 def run_daily_scan(capital: float = DEFAULT_CAPITAL, strategy: str = "rsi2"):
     today = date.today().strftime("%Y-%m-%d")
     scan_start = (date.today() - timedelta(days=600)).strftime("%Y-%m-%d")
-    strat_label = "CANSLIM" if strategy == "canslim" else "RSI(2)"
+    labels = {"canslim": "CANSLIM", "minervini": "Minervini", "rsi2": "RSI(2)"}
+    strat_label = labels.get(strategy, "RSI(2)")
 
     add_ind, gen_sig = _get_pipeline(strategy)
 
@@ -75,9 +83,9 @@ def run_daily_scan(capital: float = DEFAULT_CAPITAL, strategy: str = "rsi2"):
     tickers = get_universe(use_finviz=True, strategy=strategy)
     print(f"  {len(tickers)} tickers a analizar")
 
-    # CANSLIM necesita SPY
+    # CANSLIM y Minervini necesitan SPY
     spy_df = None
-    if strategy == "canslim":
+    if strategy in ("canslim", "minervini"):
         spy_df = download_ohlcv("SPY", scan_start, today)
 
     # Escanear
@@ -85,7 +93,7 @@ def run_daily_scan(capital: float = DEFAULT_CAPITAL, strategy: str = "rsi2"):
     for i, t in enumerate(tickers):
         try:
             df = download_ohlcv(t, scan_start, today)
-            if strategy == "canslim":
+            if strategy in ("canslim", "minervini"):
                 df = add_ind(df, spy_df)
             else:
                 df = add_ind(df)
@@ -94,7 +102,8 @@ def run_daily_scan(capital: float = DEFAULT_CAPITAL, strategy: str = "rsi2"):
             if last["signal"] == 1:
                 price = last["Close"]
                 atr = last["atr"]
-                stop = price - ATR_STOP_MULT * atr
+                stop_mult = MINERVINI_ATR_STOP_MULT if strategy == "minervini" else ATR_STOP_MULT
+                stop = price - stop_mult * atr
                 risk_per_share = price - stop
                 shares = int(capital * RISK_PER_TRADE / risk_per_share)
                 if shares < 1:
@@ -139,7 +148,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Scan diario automatizado")
     parser.add_argument("--capital", type=float, default=DEFAULT_CAPITAL)
-    parser.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim"],
-                        help="Estrategia: rsi2 o canslim")
+    parser.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim", "minervini"],
+                        help="Estrategia: rsi2, canslim o minervini")
     args = parser.parse_args()
     run_daily_scan(args.capital, args.strategy)

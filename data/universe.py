@@ -60,7 +60,7 @@ def get_universe(use_finviz: bool = True, strategy: str = "rsi2") -> list[str]:
 
     Args:
         use_finviz: si True, intenta usar Finviz primero
-        strategy: "rsi2" (RSI(2) Pullback) o "canslim" (CANSLIM)
+        strategy: "rsi2", "canslim" o "minervini"
 
     Returns:
         Lista de tickers (strings)
@@ -69,6 +69,9 @@ def get_universe(use_finviz: bool = True, strategy: str = "rsi2") -> list[str]:
         if strategy == "canslim":
             from data.universe_canslim import get_universe_canslim
             tickers = get_universe_canslim()
+        elif strategy == "minervini":
+            from data.universe_minervini import get_universe_minervini
+            tickers = get_universe_minervini()
         else:
             tickers = get_universe_finviz()
         if tickers:

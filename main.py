@@ -46,6 +46,10 @@ def _get_pipeline(strategy: str):
         from indicators.canslim_indicators import add_canslim_indicators
         from strategy.canslim import generate_signals as gen
         return add_canslim_indicators, gen
+    elif strategy == "minervini":
+        from indicators.minervini_indicators import add_minervini_indicators
+        from strategy.minervini import generate_signals as gen
+        return add_minervini_indicators, gen
     else:
         return add_indicators, generate_signals
 
@@ -57,8 +61,9 @@ def cmd_backtest(args) -> None:
     capital = args.capital
     strategy = args.strategy
 
-    strat_label = "CANSLIM" if strategy == "canslim" else "RSI(2) Pullback"
-    print(f"\n[Backtest {strat_label}] {ticker}  {start} → {end}  capital={capital:,.0f} €")
+    labels = {"canslim": "CANSLIM", "minervini": "Minervini SEPA", "rsi2": "RSI(2) Pullback"}
+    strat_label = labels.get(strategy, "RSI(2) Pullback")
+    print(f"\n[Backtest {strat_label}] {ticker}  {start} -> {end}  capital={capital:,.0f} €")
 
     add_ind, gen_sig = _get_pipeline(strategy)
 
@@ -66,7 +71,7 @@ def cmd_backtest(args) -> None:
     df = download_ohlcv(ticker, start, end)
 
     print("  Calculando indicadores...")
-    if strategy == "canslim":
+    if strategy in ("canslim", "minervini"):
         spy_df = download_ohlcv("SPY", start, end)
         df = add_ind(df, spy_df)
     else:
@@ -76,7 +81,18 @@ def cmd_backtest(args) -> None:
     df = gen_sig(df)
 
     print("  Ejecutando backtest...")
-    result = run_backtest(df, ticker, capital)
+    if strategy == "minervini":
+        from contextlib import contextmanager
+        import config as cfg
+        orig = (cfg.ATR_STOP_MULT, cfg.ATR_TRAIL_MULT, cfg.ATR_TRAIL_TRIGGER, cfg.MAX_HOLD_DAYS)
+        cfg.ATR_STOP_MULT = cfg.MINERVINI_ATR_STOP_MULT
+        cfg.ATR_TRAIL_MULT = cfg.MINERVINI_ATR_TRAIL_MULT
+        cfg.ATR_TRAIL_TRIGGER = cfg.MINERVINI_ATR_TRAIL_TRIGGER
+        cfg.MAX_HOLD_DAYS = cfg.MINERVINI_MAX_HOLD_DAYS
+        result = run_backtest(df, ticker, capital)
+        cfg.ATR_STOP_MULT, cfg.ATR_TRAIL_MULT, cfg.ATR_TRAIL_TRIGGER, cfg.MAX_HOLD_DAYS = orig
+    else:
+        result = run_backtest(df, ticker, capital)
 
     metrics = compute_metrics(result)
     print_metrics(metrics)
@@ -98,18 +114,19 @@ def cmd_scan(args) -> None:
 
     strategy = args.strategy
     add_ind, gen_sig = _get_pipeline(strategy)
-    strat_label = "CANSLIM" if strategy == "canslim" else "RSI(2) Pullback"
+    labels = {"canslim": "CANSLIM", "minervini": "Minervini SEPA", "rsi2": "RSI(2) Pullback"}
+    strat_label = labels.get(strategy, "RSI(2) Pullback")
 
     end   = date.today().strftime("%Y-%m-%d")
-    start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
+    start = (date.today() - timedelta(days=600)).strftime("%Y-%m-%d")
 
     print(f"\n[Scanner {strat_label}] Obteniendo universo de acciones...")
     tickers = get_universe(use_finviz=True, strategy=strategy)
     print(f"  {len(tickers)} tickers a analizar")
 
-    # CANSLIM necesita SPY para relative strength
+    # CANSLIM y Minervini necesitan SPY para relative strength
     spy_df = None
-    if strategy == "canslim":
+    if strategy in ("canslim", "minervini"):
         spy_df = download_ohlcv("SPY", start, end)
 
     signals_found = []
@@ -117,7 +134,7 @@ def cmd_scan(args) -> None:
     for i, ticker in enumerate(tickers):
         try:
             df = download_ohlcv(ticker, start, end)
-            if strategy == "canslim":
+            if strategy in ("canslim", "minervini"):
                 df = add_ind(df, spy_df)
             else:
                 df = add_ind(df)
@@ -226,7 +243,7 @@ def cmd_portfolio(args) -> None:
 def cmd_optimize(args) -> None:
     from optimizer.grid_search import run_optimization, print_optimization_results
 
-    print(f"\n[Optimización] {args.ticker}  {args.start} → {args.end}")
+    print(f"\n[Optimización] {args.ticker}  {args.start} -> {args.end}")
     print(f"  Métrica objetivo: {args.metric}")
 
     def progress(i, total):
@@ -268,7 +285,7 @@ def parse_args():
     bt.add_argument("--capital", default=DEFAULT_CAPITAL, type=float,
                     help=f"Capital inicial en € (default {DEFAULT_CAPITAL:,.0f})")
     bt.add_argument("--open",    action="store_true", help="Abrir reporte HTML en el navegador")
-    bt.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim"],
+    bt.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim", "minervini"],
                     help="Estrategia: rsi2 (RSI(2) Pullback) o canslim (CANSLIM)")
 
     # --- scan ---
@@ -276,7 +293,7 @@ def parse_args():
     sc.add_argument("--capital", default=DEFAULT_CAPITAL, type=float,
                     help=f"Capital disponible en € (default {DEFAULT_CAPITAL:,.0f})")
     sc.add_argument("--alert", action="store_true", help="Enviar alertas por Telegram")
-    sc.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim"],
+    sc.add_argument("--strategy", default="rsi2", choices=["rsi2", "canslim", "minervini"],
                     help="Estrategia: rsi2 (RSI(2) Pullback) o canslim (CANSLIM)")
 
     # --- portfolio ---

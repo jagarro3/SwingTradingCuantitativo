@@ -1,6 +1,6 @@
 """
 Configuración global del sistema de swing trading.
-Estrategias: RSI(2) Trend Pullback, CANSLIM (William O'Neil).
+Estrategias: RSI(2) Trend Pullback, CANSLIM (William O'Neil), Minervini SEPA.
 Los parámetros de capital y fechas se pasan por CLI en main.py.
 """
 
@@ -42,6 +42,18 @@ CANSLIM_HIGH_PROXIMITY = 0.85      # N: precio >= 85% del máximo 52 semanas
 CANSLIM_VOLUME_SURGE = 1.5         # S: volumen > 1.5x media 50 días
 CANSLIM_RS_THRESHOLD = 1.0         # L: relative strength > 1.0 (supera SPY)
 CANSLIM_MAX_HOLD_DAYS = 60         # CANSLIM es más position trading
+
+# --- Minervini Trend Template (SEPA) ---
+MINERVINI_SMA200_RISING_DAYS = 20   # SMA200 debe subir N días para confirmar tendencia
+MINERVINI_MAX_PCT_FROM_HIGH = 25    # max % debajo del máximo 52 semanas
+MINERVINI_MIN_PCT_FROM_LOW = 25     # min % encima del mínimo 52 semanas
+MINERVINI_RSI_LOW = 30              # RSI(14) zona pullback: límite inferior
+MINERVINI_RSI_HIGH = 60             # RSI(14) zona pullback: límite superior
+MINERVINI_MAX_PCT_FROM_SMA21 = 8    # max % distancia desde SMA(21)
+MINERVINI_ATR_STOP_MULT = 2.5      # stop-loss = entrada - ATR * mult
+MINERVINI_ATR_TRAIL_MULT = 3.0     # trailing stop = max_close - ATR * mult
+MINERVINI_ATR_TRAIL_TRIGGER = 2.0   # activar trailing cuando ganancia >= 2*ATR (dejar correr)
+MINERVINI_MAX_HOLD_DAYS = 60        # hold largo para trend-following
 
 # --- Datos ---
 CACHE_DIR = "cache"                 # carpeta local para cachear datos descargados

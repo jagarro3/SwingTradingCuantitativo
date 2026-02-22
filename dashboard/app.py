@@ -27,6 +27,7 @@ import pandas as pd
 import json
 from datetime import date, timedelta
 
+from contextlib import contextmanager
 from config import (
     DEFAULT_START_DATE, DEFAULT_END_DATE, DEFAULT_CAPITAL,
     ATR_STOP_MULT, ATR_TRAIL_MULT, RISK_PER_TRADE, MAX_POSITIONS, CACHE_DIR,
@@ -34,6 +35,10 @@ from config import (
     MIN_PRICE, MAX_HOLD_DAYS,
     CANSLIM_HIGH_PROXIMITY, CANSLIM_VOLUME_SURGE, CANSLIM_RS_THRESHOLD,
     CANSLIM_MAX_HOLD_DAYS,
+    MINERVINI_ATR_STOP_MULT, MINERVINI_ATR_TRAIL_MULT, MINERVINI_ATR_TRAIL_TRIGGER,
+    MINERVINI_MAX_HOLD_DAYS, MINERVINI_RSI_LOW, MINERVINI_RSI_HIGH,
+    MINERVINI_MAX_PCT_FROM_HIGH, MINERVINI_MIN_PCT_FROM_LOW,
+    MINERVINI_MAX_PCT_FROM_SMA21, MINERVINI_SMA200_RISING_DAYS,
 )
 from data.downloader import download_ohlcv
 from data.universe import get_universe
@@ -50,6 +55,10 @@ def _get_pipeline(estrategia: str):
         from indicators.canslim_indicators import add_canslim_indicators
         from strategy.canslim import generate_signals
         return add_canslim_indicators, generate_signals
+    elif estrategia == "Minervini":
+        from indicators.minervini_indicators import add_minervini_indicators
+        from strategy.minervini import generate_signals
+        return add_minervini_indicators, generate_signals
     else:
         from indicators.technical import add_indicators
         from strategy.momentum import generate_signals
@@ -57,7 +66,26 @@ def _get_pipeline(estrategia: str):
 
 
 def _strategy_key(estrategia: str) -> str:
-    return "canslim" if estrategia == "CANSLIM" else "rsi2"
+    if estrategia == "CANSLIM":
+        return "canslim"
+    elif estrategia == "Minervini":
+        return "minervini"
+    return "rsi2"
+
+
+@contextmanager
+def _minervini_config():
+    """Override temporal de config para backtest Minervini."""
+    import config as cfg
+    orig = (cfg.ATR_STOP_MULT, cfg.ATR_TRAIL_MULT, cfg.ATR_TRAIL_TRIGGER, cfg.MAX_HOLD_DAYS)
+    cfg.ATR_STOP_MULT = cfg.MINERVINI_ATR_STOP_MULT
+    cfg.ATR_TRAIL_MULT = cfg.MINERVINI_ATR_TRAIL_MULT
+    cfg.ATR_TRAIL_TRIGGER = cfg.MINERVINI_ATR_TRAIL_TRIGGER
+    cfg.MAX_HOLD_DAYS = cfg.MINERVINI_MAX_HOLD_DAYS
+    try:
+        yield
+    finally:
+        cfg.ATR_STOP_MULT, cfg.ATR_TRAIL_MULT, cfg.ATR_TRAIL_TRIGGER, cfg.MAX_HOLD_DAYS = orig
 
 
 # ---------------------------------------------------------------
@@ -70,6 +98,8 @@ def _strategy_version(strategy: str) -> str:
     files = ["config.py"]
     if strategy == "canslim":
         files += ["strategy/canslim.py", "indicators/canslim_indicators.py"]
+    elif strategy == "minervini":
+        files += ["strategy/minervini.py", "indicators/minervini_indicators.py"]
     else:
         files += ["strategy/momentum.py", "indicators/technical.py"]
     h = hashlib.md5()
@@ -132,10 +162,12 @@ st.title("📈 Swing Trading Cuantitativo")
 with st.sidebar:
     st.header("⚙️ Parámetros")
 
-    estrategia = st.radio("Estrategia", ["RSI(2) Pullback", "CANSLIM"])
+    estrategia = st.radio("Estrategia", ["RSI(2) Pullback", "CANSLIM", "Minervini"])
 
     if estrategia == "CANSLIM":
         st.markdown("*CANSLIM (William O'Neil) — growth + momentum*")
+    elif estrategia == "Minervini":
+        st.markdown("*Minervini SEPA — trend template + pullback*")
     else:
         st.markdown("*RSI(2) Trend Pullback + ATR Trailing Stop*")
 
@@ -165,17 +197,26 @@ if mode == "Backtest (un ticker)":
             try:
                 df = download_ohlcv(ticker, str(start), str(end))
 
-                # CANSLIM necesita datos de SPY para relative strength
-                if estrategia == "CANSLIM":
+                # CANSLIM y Minervini necesitan datos de SPY para relative strength
+                if estrategia in ("CANSLIM", "Minervini"):
                     spy_df = download_ohlcv("SPY", str(start), str(end))
                     df = add_ind(df, spy_df)
-                    st.info("Nota: El backtest CANSLIM evalúa solo criterios técnicos (N, S, L). "
-                            "Los fundamentales (C, A, I) se aplican en el Scanner con Finviz.")
+                    if estrategia == "CANSLIM":
+                        st.info("Nota: El backtest CANSLIM evalúa solo criterios técnicos (N, S, L). "
+                                "Los fundamentales (C, A, I) se aplican en el Scanner con Finviz.")
+                    else:
+                        st.info("Minervini Trend Template: MA alignment + RSI(14) pullback. "
+                                "Hold hasta 40 días.")
                 else:
                     df = add_ind(df)
 
                 df = gen_signals(df)
-                result = run_backtest(df, ticker, float(capital))
+
+                if estrategia == "Minervini":
+                    with _minervini_config():
+                        result = run_backtest(df, ticker, float(capital))
+                else:
+                    result = run_backtest(df, ticker, float(capital))
                 metrics = compute_metrics(result)
                 df_trades = trades_to_dataframe(result.trades)
             except Exception as e:
@@ -200,6 +241,8 @@ if mode == "Backtest (un ticker)":
 
         if estrategia == "CANSLIM":
             subplot_titles = ["Precio", "Fuerza Relativa vs SPY", "Volumen (ratio vs SMA50)"]
+        elif estrategia == "Minervini":
+            subplot_titles = ["Precio + MA Alignment", "RSI(14) — Zona pullback", "Fuerza Relativa vs SPY"]
         else:
             subplot_titles = ["Precio", "RSI(2)", "Volumen"]
 
@@ -220,27 +263,44 @@ if mode == "Backtest (un ticker)":
         fig.add_trace(go.Scatter(x=df.index, y=df["sma200"], name="SMA200",
                                  line=dict(color="orange", width=1)), row=1, col=1)
 
+        if estrategia == "Minervini":
+            fig.add_trace(go.Scatter(x=df.index, y=df["sma150"], name="SMA150",
+                                     line=dict(color="magenta", width=1)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df["sma50"], name="SMA50",
+                                     line=dict(color="cyan", width=1)), row=1, col=1)
+            fig.add_trace(go.Scatter(x=df.index, y=df["sma21"], name="SMA21",
+                                     line=dict(color="white", width=0.5, dash="dot")), row=1, col=1)
+
         entries = df[df["signal"] == 1]
         fig.add_trace(go.Scatter(x=entries.index, y=entries["Low"] * 0.98,
                                  mode="markers",
                                  marker=dict(symbol="triangle-up", size=10, color="lime"),
                                  name="Entrada"), row=1, col=1)
 
-        # Subplot 2: RSI(2) o Relative Strength
+        # Subplot 2: RSI(2), RSI(14) o Relative Strength
         if estrategia == "CANSLIM" and "rel_strength" in df.columns:
             fig.add_trace(go.Scatter(x=df.index, y=df["rel_strength"], name="Rel. Strength",
                                      line=dict(color="cyan", width=1)), row=2, col=1)
             fig.add_hline(y=1.0, line_dash="dash", line_color="lime", row=2, col=1)
+        elif estrategia == "Minervini" and "rsi14" in df.columns:
+            fig.add_trace(go.Scatter(x=df.index, y=df["rsi14"], name="RSI(14)",
+                                     line=dict(color="yellow", width=1)), row=2, col=1)
+            fig.add_hline(y=MINERVINI_RSI_LOW, line_dash="dash", line_color="lime", row=2, col=1)
+            fig.add_hline(y=MINERVINI_RSI_HIGH, line_dash="dash", line_color="orange", row=2, col=1)
         else:
             fig.add_trace(go.Scatter(x=df.index, y=df["rsi2"], name="RSI(2)",
                                      line=dict(color="yellow", width=1)), row=2, col=1)
             fig.add_hline(y=10, line_dash="dash", line_color="lime", row=2, col=1)
 
-        # Subplot 3: Volumen o Volume Ratio
+        # Subplot 3: Volumen, Volume Ratio o Relative Strength
         if estrategia == "CANSLIM" and "vol_ratio" in df.columns:
             fig.add_trace(go.Bar(x=df.index, y=df["vol_ratio"], name="Vol Ratio",
                                  marker_color="rgba(100,120,200,0.4)"), row=3, col=1)
             fig.add_hline(y=1.5, line_dash="dash", line_color="orange", row=3, col=1)
+        elif estrategia == "Minervini" and "rel_strength" in df.columns:
+            fig.add_trace(go.Scatter(x=df.index, y=df["rel_strength"], name="Rel. Strength",
+                                     line=dict(color="cyan", width=1)), row=3, col=1)
+            fig.add_hline(y=1.0, line_dash="dash", line_color="lime", row=3, col=1)
         else:
             fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Vol",
                                  marker_color="rgba(100,120,200,0.4)"), row=3, col=1)
@@ -315,9 +375,9 @@ elif mode == "Scanner (universo hoy)":
         tickers = get_universe(use_finviz=True, strategy=strat_key)
         status.text(f"{len(tickers)} candidatos obtenidos. Analizando señales...")
 
-        # CANSLIM necesita SPY para relative strength
+        # CANSLIM y Minervini necesitan SPY para relative strength
         spy_df = None
-        if estrategia == "CANSLIM":
+        if estrategia in ("CANSLIM", "Minervini"):
             status.text(f"{len(tickers)} candidatos. Descargando SPY para relative strength...")
             spy_df = download_ohlcv("SPY", scan_start, today)
 
@@ -327,7 +387,7 @@ elif mode == "Scanner (universo hoy)":
             try:
                 df = download_ohlcv(t, scan_start, today)
 
-                if estrategia == "CANSLIM":
+                if estrategia in ("CANSLIM", "Minervini"):
                     df = add_ind(df, spy_df)
                 else:
                     df = add_ind(df)
@@ -338,7 +398,8 @@ elif mode == "Scanner (universo hoy)":
                 if last["signal"] == 1:
                     price = last["Close"]
                     atr = last["atr"]
-                    stop = price - ATR_STOP_MULT * atr
+                    stop_mult = MINERVINI_ATR_STOP_MULT if estrategia == "Minervini" else ATR_STOP_MULT
+                    stop = price - stop_mult * atr
                     risk_per_share = price - stop
                     shares = int(capital * RISK_PER_TRADE / risk_per_share)
                     if shares < 1:
@@ -347,13 +408,17 @@ elif mode == "Scanner (universo hoy)":
                     # Backtest con 5 años de datos para mayor fiabilidad
                     try:
                         df_bt = download_ohlcv(t, bt_start, today)
-                        if estrategia == "CANSLIM":
+                        if estrategia in ("CANSLIM", "Minervini"):
                             spy_bt = download_ohlcv("SPY", bt_start, today) if spy_df is None else None
                             df_bt = add_ind(df_bt, spy_bt or spy_df)
                         else:
                             df_bt = add_ind(df_bt)
                         df_bt = gen_signals(df_bt)
-                        bt_result = run_backtest(df_bt, t, float(capital))
+                        if estrategia == "Minervini":
+                            with _minervini_config():
+                                bt_result = run_backtest(df_bt, t, float(capital))
+                        else:
+                            bt_result = run_backtest(df_bt, t, float(capital))
                         bt_metrics = compute_metrics(bt_result)
                         bt_data = {
                             "BT Ret%": bt_metrics["total_return_pct"],
@@ -380,6 +445,32 @@ elif mode == "Scanner (universo hoy)":
                             "Fuerza Rel.":  round(rs, 2),
                             "Vol/SMA50":    round(vr, 1),
                             "% Max 52sem":  round(pfh, 1),
+                            "ATR":          round(atr, 2),
+                            "Stop Loss":    round(stop, 2),
+                            "Acciones":     shares,
+                            "Coste":        round(shares * price, 2),
+                            "Riesgo":       round(shares * risk_per_share, 2),
+                            **bt_data,
+                            "Motivo":       motivo,
+                        })
+                    elif estrategia == "Minervini":
+                        score = last.get("minervini_score", 0) or 0
+                        rs = last.get("rel_strength", 0) or 0
+                        rsi14 = last.get("rsi14", 0) or 0
+                        pfh = last.get("pct_from_high", 0) or 0
+                        pfl = last.get("pct_from_low", 0) or 0
+
+                        motivo = f"Score {int(score)}/7, RSI14={rsi14:.0f}, RS={rs:.2f}, -{pfh:.1f}% de max"
+
+                        signals_found.append({
+                            "Ticker":       t,
+                            "Nombre":       "",
+                            "Precio":       round(price, 2),
+                            "Score":        int(score),
+                            "RSI(14)":      round(rsi14, 1),
+                            "Fuerza Rel.":  round(rs, 2),
+                            "% Max 52sem":  round(pfh, 1),
+                            "% Min 52sem":  round(pfl, 1),
                             "ATR":          round(atr, 2),
                             "Stop Loss":    round(stop, 2),
                             "Acciones":     shares,
@@ -459,6 +550,10 @@ elif mode == "Scanner (universo hoy)":
                 df_signals = df_signals.sort_values(
                     ["BT PF", "Score"], ascending=[False, False],
                 ).reset_index(drop=True)
+            elif estrategia == "Minervini":
+                df_signals = df_signals.sort_values(
+                    ["BT PF", "Score"], ascending=[False, False],
+                ).reset_index(drop=True)
             else:
                 df_signals = df_signals.sort_values(
                     ["BT PF", "RSI(2)"], ascending=[False, True],
@@ -486,6 +581,27 @@ elif mode == "Scanner (universo hoy)":
                         "**Gestión de riesgo:**\n"
                         f"- Stop: ATR × {ATR_STOP_MULT} · Max. hold: {CANSLIM_MAX_HOLD_DAYS} días · "
                         f"Riesgo/op: {RISK_PER_TRADE*100:.0f}% del capital"
+                    )
+                elif estrategia == "Minervini":
+                    st.markdown(
+                        "**Trend Template (Stage 2):**\n"
+                        f"- Close > SMA(200) > SMA(150) > SMA(50)\n"
+                        f"- SMA(50) > SMA(150) > SMA(200) (MA alignment)\n"
+                        f"- SMA(200) subiendo {MINERVINI_SMA200_RISING_DAYS}+ días\n"
+                        f"- Precio ≤ {MINERVINI_MAX_PCT_FROM_HIGH}% debajo max 52 sem\n"
+                        f"- Precio ≥ {MINERVINI_MIN_PCT_FROM_LOW}% encima min 52 sem\n\n"
+                        "**Pullback entry:**\n"
+                        f"- RSI(14) entre {MINERVINI_RSI_LOW}-{MINERVINI_RSI_HIGH}\n"
+                        f"- Close dentro del {MINERVINI_MAX_PCT_FROM_SMA21}% de SMA(21)\n"
+                        f"- Precio ≥ ${MIN_PRICE:.0f}\n\n"
+                        "**Salida (gestionada por engine):**\n"
+                        f"- Stop-loss: ATR × {MINERVINI_ATR_STOP_MULT}\n"
+                        f"- Trailing stop: ATR × {MINERVINI_ATR_TRAIL_MULT} "
+                        f"(activo tras +{MINERVINI_ATR_TRAIL_TRIGGER}×ATR)\n"
+                        f"- Time stop: {MINERVINI_MAX_HOLD_DAYS} días\n\n"
+                        "**Gestión de riesgo:**\n"
+                        f"- Riesgo/op: {RISK_PER_TRADE*100:.0f}% del capital · "
+                        f"Max. posiciones: {MAX_POSITIONS}"
                     )
                 else:
                     st.markdown(
@@ -541,6 +657,14 @@ elif mode == "Scanner (universo hoy)":
                     "Fuerza Rel.":  st.column_config.NumberColumn("Fuerza Rel.", help="Relative Strength vs SPY. >1 = supera al mercado", format="%.2f"),
                     "Vol/SMA50":    st.column_config.NumberColumn("Vol/SMA50", help="Volumen actual / media 50 días. >1.5 = ruptura con volumen", format="%.1f"),
                     "% Max 52sem":  st.column_config.NumberColumn("% Max 52sem", help="Distancia (%) desde el máximo de 52 semanas", format="%.1f"),
+                })
+            elif estrategia == "Minervini":
+                col_config.update({
+                    "Score":        st.column_config.NumberColumn("Score", help="Trend Template (0-7): condiciones de MA alignment cumplidas"),
+                    "RSI(14)":      st.column_config.NumberColumn("RSI(14)", help="RSI 14 periodos. 30-50 = zona de pullback (entrada)", format="%.1f"),
+                    "Fuerza Rel.":  st.column_config.NumberColumn("Fuerza Rel.", help="Relative Strength vs SPY. >1 = supera al mercado", format="%.2f"),
+                    "% Max 52sem":  st.column_config.NumberColumn("% Max 52sem", help="Distancia (%) desde max 52 sem. <25% = cerca de máximos", format="%.1f"),
+                    "% Min 52sem":  st.column_config.NumberColumn("% Min 52sem", help="Distancia (%) sobre min 52 sem. >25% = fortaleza confirmada", format="%.1f"),
                 })
             else:
                 col_config.update({

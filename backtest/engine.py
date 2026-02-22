@@ -14,11 +14,7 @@ Simulación barra a barra (daily) con:
 from dataclasses import dataclass, field
 from typing import Optional
 import pandas as pd
-from config import (
-    RISK_PER_TRADE, MAX_POSITIONS,
-    ATR_STOP_MULT, ATR_TRAIL_MULT, ATR_TRAIL_TRIGGER,
-    MAX_HOLD_DAYS, COMMISSION_PCT, SLIPPAGE_PCT,
-)
+import config as cfg
 
 
 @dataclass
@@ -66,14 +62,14 @@ class BacktestResult:
 def _apply_slippage(price: float, direction: str) -> float:
     """Aplica slippage: peor precio para el trader."""
     if direction == "buy":
-        return price * (1 + SLIPPAGE_PCT)
+        return price * (1 + cfg.SLIPPAGE_PCT)
     else:
-        return price * (1 - SLIPPAGE_PCT)
+        return price * (1 - cfg.SLIPPAGE_PCT)
 
 
 def _commission(value: float) -> float:
     """Calcula comisión sobre un valor de operación."""
-    return value * COMMISSION_PCT
+    return value * cfg.COMMISSION_PCT
 
 
 def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> BacktestResult:
@@ -130,7 +126,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
                 open_trade = None
 
             # 4. Time stop (al cierre)
-            elif open_trade.bars_held >= MAX_HOLD_DAYS:
+            elif open_trade.bars_held >= cfg.MAX_HOLD_DAYS:
                 exit_price = _apply_slippage(close, "sell")
                 commission = _commission(exit_price * open_trade.shares)
                 open_trade.exit_date = date
@@ -148,8 +144,8 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
 
                 # Activar/actualizar trailing stop
                 unrealized_gain = open_trade.highest_close - open_trade.entry_price
-                if not pd.isna(atr) and atr > 0 and unrealized_gain >= ATR_TRAIL_TRIGGER * atr:
-                    new_trail = open_trade.highest_close - ATR_TRAIL_MULT * atr
+                if not pd.isna(atr) and atr > 0 and unrealized_gain >= cfg.ATR_TRAIL_TRIGGER * atr:
+                    new_trail = open_trade.highest_close - cfg.ATR_TRAIL_MULT * atr
                     if new_trail > open_trade.trailing_stop:
                         open_trade.trailing_stop = new_trail
 
@@ -165,11 +161,11 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
             entry_price = _apply_slippage(price, "buy")
 
             # Position sizing: arriesgar RISK_PER_TRADE del capital
-            risk_amount = capital * RISK_PER_TRADE
-            shares = risk_amount / (ATR_STOP_MULT * atr)
+            risk_amount = capital * cfg.RISK_PER_TRADE
+            shares = risk_amount / (cfg.ATR_STOP_MULT * atr)
 
             # Cap por máximo de posiciones (no usar más de capital/MAX_POSITIONS)
-            max_position_value = capital / MAX_POSITIONS
+            max_position_value = capital / cfg.MAX_POSITIONS
             if shares * entry_price > max_position_value:
                 shares = max_position_value / entry_price
 
@@ -186,7 +182,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
             commission = _commission(shares * entry_price)
             capital -= shares * entry_price + commission
 
-            stop = entry_price - ATR_STOP_MULT * atr
+            stop = entry_price - cfg.ATR_STOP_MULT * atr
 
             open_trade = Trade(
                 ticker=ticker,
