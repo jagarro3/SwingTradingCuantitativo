@@ -1,22 +1,23 @@
 """
-Obtener tipo de cambio EUR/USD en tiempo real.
+Obtener tipo de cambio USD→EUR en tiempo real.
 """
 
 import yfinance as yf
 
 
-def get_eur_usd() -> float:
+def get_usd_eur() -> float:
     """
-    Devuelve el tipo de cambio EUR/USD actual.
-    Si falla, devuelve 1.0 como fallback.
+    Devuelve el tipo de cambio USD→EUR actual.
+    Ejemplo: 0.86 significa 1 USD = 0.86 EUR.
+    Si falla, devuelve 0.85 como fallback.
     """
     try:
-        ticker = yf.Ticker("EURUSD=X")
+        ticker = yf.Ticker("USDEUR=X")
         data = ticker.history(period="1d")
         if not data.empty:
             rate = float(data["Close"].iloc[-1])
             if rate > 0:
-                return round(rate, 4)
+                return round(rate, 6)
     except Exception:
         pass
-    return 1.0
+    return 0.85
