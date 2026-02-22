@@ -1,0 +1,9 @@
+.env
+cache/
+reports/output/
+__pycache__/
+*.pyc
+.venv/
+venv/
+portfolio/positions.json
+.claude/
