@@ -40,3 +40,27 @@ def find_position(position_id: str) -> Optional[Position]:
         if p.id == position_id:
             return p
     return None
+
+
+def delete_position(position_id: str) -> bool:
+    """Elimina una posición por ID. Devuelve True si se encontró y eliminó."""
+    positions = load_positions()
+    before = len(positions)
+    positions = [p for p in positions if p.id != position_id]
+    if len(positions) < before:
+        save_positions(positions)
+        return True
+    return False
+
+
+def update_position(position_id: str, **kwargs) -> Optional[Position]:
+    """Actualiza campos de una posición. Devuelve la posición actualizada o None."""
+    positions = load_positions()
+    for pos in positions:
+        if pos.id == position_id:
+            for key, value in kwargs.items():
+                if hasattr(pos, key):
+                    setattr(pos, key, value)
+            save_positions(positions)
+            return pos
+    return None

@@ -7,7 +7,10 @@ import pandas as pd
 from datetime import date
 
 from config import MAX_HOLD_DAYS, DEFAULT_COMMISSION_EUR
-from portfolio.store import get_open_positions, get_closed_positions
+from portfolio.store import (
+    get_open_positions, get_closed_positions,
+    delete_position, update_position,
+)
 from portfolio.manager import add_position, check_positions, close_position, _download_recent
 from data.fx import get_eur_usd
 
@@ -56,7 +59,6 @@ def render_portfolio_tab():
             pnl_pct = pos.pnl_pct(current_price)
             pnl_eur = pos.pnl_eur(current_price, eur_usd)
             cost_eur = pos.cost_eur(eur_usd)
-            cost_usd = pos.shares * pos.entry_price
             days_left = max(0, MAX_HOLD_DAYS - pos.bars_held)
 
             rows.append({
@@ -89,12 +91,94 @@ def render_portfolio_tab():
         c2.metric("P&L (USD)", f"${total_pnl_usd:+,.2f}")
         c3.metric("P&L (EUR)", f"€{total_pnl_eur:+,.2f}")
         c4.metric("Comisiones", f"€{total_commission:,.2f}")
+
+        # --- Editar / Eliminar posición abierta ---
+        st.divider()
+        st.subheader("Gestionar posición")
+        pos_ids = [p.id for p in open_pos]
+        selected_manage = st.selectbox("Seleccionar posición", pos_ids, key="manage_pos")
+        sel_pos = next((p for p in open_pos if p.id == selected_manage), None)
+
+        if sel_pos:
+            tab_edit, tab_close, tab_delete = st.tabs(["✏️ Editar", "📤 Cerrar", "🗑️ Eliminar"])
+
+            with tab_edit:
+                with st.form("edit_position"):
+                    col1, col2, col3 = st.columns(3)
+                    edit_price = col1.number_input(
+                        "Precio entrada ($)", value=sel_pos.entry_price,
+                        min_value=0.01, step=0.01, format="%.2f",
+                    )
+                    edit_shares = col2.number_input(
+                        "Acciones", value=sel_pos.shares,
+                        min_value=1, step=1,
+                    )
+                    edit_stop = col3.number_input(
+                        "Stop Loss ($)", value=sel_pos.stop_loss,
+                        min_value=0.01, step=0.01, format="%.2f",
+                    )
+
+                    col4, col5, col6 = st.columns(3)
+                    edit_commission = col4.number_input(
+                        "Comisión (€)", value=sel_pos.commission,
+                        min_value=0.0, step=0.50, format="%.2f",
+                    )
+                    edit_eur_usd = col5.number_input(
+                        "EUR/USD entrada", value=sel_pos.eur_usd_rate,
+                        min_value=0.50, max_value=2.00, step=0.0001, format="%.4f",
+                    )
+                    edit_trail = col6.number_input(
+                        "Trailing Stop ($)", value=sel_pos.trailing_stop,
+                        min_value=0.01, step=0.01, format="%.2f",
+                    )
+
+                    if st.form_submit_button("Guardar cambios", use_container_width=True):
+                        update_position(
+                            sel_pos.id,
+                            entry_price=edit_price,
+                            shares=int(edit_shares),
+                            stop_loss=edit_stop,
+                            trailing_stop=edit_trail,
+                            commission=edit_commission,
+                            eur_usd_rate=edit_eur_usd,
+                        )
+                        st.success(f"Posición {sel_pos.id} actualizada.")
+                        st.rerun()
+
+            with tab_close:
+                with st.form("close_position"):
+                    col_c1, col_c2 = st.columns(2)
+                    close_price = col_c1.number_input(
+                        "Precio de salida ($)", min_value=0.01, value=sel_pos.entry_price, step=0.01,
+                    )
+                    close_eur_usd = col_c2.number_input(
+                        "EUR/USD salida", min_value=0.50, max_value=2.00,
+                        value=eur_usd, step=0.0001, format="%.4f",
+                    )
+
+                    preview_pnl_usd = (close_price - sel_pos.entry_price) * sel_pos.shares
+                    preview_pnl_eur = preview_pnl_usd / close_eur_usd - sel_pos.commission * 2
+                    st.caption(f"P&L estimado: ${preview_pnl_usd:+,.2f} → €{preview_pnl_eur:+,.2f} (neto comisiones)")
+
+                    if st.form_submit_button("Cerrar posición", use_container_width=True):
+                        close_position(sel_pos.id, close_price)
+                        st.success(f"Posición {sel_pos.id} cerrada a ${close_price:.2f}")
+                        st.rerun()
+
+            with tab_delete:
+                st.warning(f"⚠️ Eliminar **{sel_pos.id}** — {sel_pos.ticker} "
+                           f"({sel_pos.shares} acc @ ${sel_pos.entry_price:.2f})")
+                st.caption("Esta acción no se puede deshacer.")
+                if st.button("Eliminar posición", type="primary", use_container_width=True, key="delete_open"):
+                    delete_position(sel_pos.id)
+                    st.success(f"Posición {sel_pos.id} eliminada.")
+                    st.rerun()
     else:
         st.info("No hay posiciones abiertas.")
 
     # --- Revision diaria ---
     st.divider()
-    if st.button("Revision diaria", type="primary", use_container_width=True):
+    if st.button("Revisión diaria", type="primary", use_container_width=True):
         if not open_pos:
             st.warning("No hay posiciones que revisar.")
         else:
@@ -123,7 +207,6 @@ def render_portfolio_tab():
         new_commission = col5.number_input("Comisión (€)", min_value=0.0, value=commission, step=0.50, format="%.2f")
         new_eur_usd = col6.number_input("EUR/USD", min_value=0.50, max_value=2.00, value=eur_usd, step=0.0001, format="%.4f")
 
-        # Preview del coste
         preview_cost_usd = new_price * new_shares
         preview_cost_eur = preview_cost_usd / new_eur_usd if new_eur_usd > 0 else 0
         st.caption(
@@ -149,30 +232,6 @@ def render_portfolio_tab():
                 st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
-
-    # --- Cerrar posicion ---
-    if open_pos:
-        st.divider()
-        st.subheader("Cerrar posición")
-        with st.form("close_position"):
-            pos_ids = [p.id for p in open_pos]
-            selected_id = st.selectbox("Posición", pos_ids)
-            col_c1, col_c2 = st.columns(2)
-            close_price = col_c1.number_input("Precio de salida ($)", min_value=0.01, value=100.0, step=0.01)
-            close_eur_usd = col_c2.number_input("EUR/USD salida", min_value=0.50, max_value=2.00, value=eur_usd, step=0.0001, format="%.4f")
-
-            # Preview P&L
-            sel_pos = next((p for p in open_pos if p.id == selected_id), None)
-            if sel_pos:
-                preview_pnl_usd = (close_price - sel_pos.entry_price) * sel_pos.shares
-                preview_pnl_eur = preview_pnl_usd / close_eur_usd - sel_pos.commission * 2
-                st.caption(f"P&L estimado: ${preview_pnl_usd:+,.2f} → €{preview_pnl_eur:+,.2f} (neto comisiones)")
-
-            close_btn = st.form_submit_button("Cerrar posición", use_container_width=True)
-            if close_btn:
-                close_position(selected_id, close_price)
-                st.success(f"Posición {selected_id} cerrada a ${close_price:.2f}")
-                st.rerun()
 
     # --- Historial ---
     if closed_pos:
@@ -207,3 +266,13 @@ def render_portfolio_tab():
             c2.metric("P&L total €", f"€{total_pnl_eur:+,.2f}")
             c3.metric("Comisiones", f"€{total_commissions:,.2f}")
             c4.metric("Win rate", f"{win_rate:.0f}%")
+
+            # --- Eliminar del historial ---
+            st.divider()
+            closed_ids = [r["ID"] for r in rows]
+            col_h1, col_h2 = st.columns([3, 1])
+            selected_hist = col_h1.selectbox("Seleccionar operación", closed_ids, key="hist_pos")
+            if col_h2.button("Eliminar", key="delete_hist", use_container_width=True):
+                delete_position(selected_hist)
+                st.success(f"Operación {selected_hist} eliminada del historial.")
+                st.rerun()
