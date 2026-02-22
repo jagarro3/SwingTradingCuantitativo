@@ -41,8 +41,13 @@ def get_universe_minervini() -> list[str]:
         }
         foverview.set_filter(filters_dict=filters_dict)
         df = foverview.screener_view()
+        # Excluir ETFs — solo acciones
+        if "Industry" in df.columns:
+            n_before = len(df)
+            df = df[df["Industry"] != "Exchange Traded Fund"]
+            print(f"[Finviz Minervini] {n_before} total, {n_before - len(df)} ETFs excluidos")
         tickers = df["Ticker"].dropna().tolist()
-        print(f"[Finviz Minervini] {len(tickers)} candidatos pre-filtrados")
+        print(f"[Finviz Minervini] {len(tickers)} acciones pre-filtradas")
         return tickers
     except ImportError:
         print("[!] finvizfinance no instalado, usando fallback S&P500")

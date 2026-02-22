@@ -29,8 +29,11 @@ def get_universe_finviz() -> list[str]:
         }
         foverview.set_filter(filters_dict=filters_dict)
         df = foverview.screener_view()
+        # Excluir ETFs — solo acciones
+        if "Industry" in df.columns:
+            df = df[df["Industry"] != "Exchange Traded Fund"]
         tickers = df["Ticker"].dropna().tolist()
-        print(f"[Finviz] {len(tickers)} candidatos pre-filtrados")
+        print(f"[Finviz] {len(tickers)} acciones pre-filtradas (sin ETFs)")
         return tickers
     except ImportError:
         print("[!] finvizfinance no instalado, usando fallback S&P500")
