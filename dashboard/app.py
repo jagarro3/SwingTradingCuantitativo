@@ -284,6 +284,7 @@ if mode == "Backtest (un ticker)":
 elif mode == "Scanner (universo hoy)":
     today = date.today().strftime("%Y-%m-%d")
     scan_start = (date.today() - timedelta(days=600)).strftime("%Y-%m-%d")
+    bt_start   = (date.today() - timedelta(days=5 * 365)).strftime("%Y-%m-%d")
 
     st.subheader(f"Scanner {estrategia} — {today}")
 
@@ -343,6 +344,26 @@ elif mode == "Scanner (universo hoy)":
                     if shares < 1:
                         shares = 1
 
+                    # Backtest con 5 años de datos para mayor fiabilidad
+                    try:
+                        df_bt = download_ohlcv(t, bt_start, today)
+                        if estrategia == "CANSLIM":
+                            spy_bt = download_ohlcv("SPY", bt_start, today) if spy_df is None else None
+                            df_bt = add_ind(df_bt, spy_bt or spy_df)
+                        else:
+                            df_bt = add_ind(df_bt)
+                        df_bt = gen_signals(df_bt)
+                        bt_result = run_backtest(df_bt, t, float(capital))
+                        bt_metrics = compute_metrics(bt_result)
+                        bt_data = {
+                            "BT Ret%": bt_metrics["total_return_pct"],
+                            "BT WR%":  bt_metrics["win_rate_pct"],
+                            "BT PF":   bt_metrics["profit_factor"],
+                            "BT Ops":  bt_metrics["total_trades"],
+                        }
+                    except Exception:
+                        bt_data = {"BT Ret%": 0, "BT WR%": 0, "BT PF": 0, "BT Ops": 0}
+
                     if estrategia == "CANSLIM":
                         rs = last.get("rel_strength", 0) or 0
                         vr = last.get("vol_ratio", 0) or 0
@@ -364,6 +385,7 @@ elif mode == "Scanner (universo hoy)":
                             "Acciones":     shares,
                             "Coste":        round(shares * price, 2),
                             "Riesgo":       round(shares * risk_per_share, 2),
+                            **bt_data,
                             "Motivo":       motivo,
                         })
                     else:
@@ -388,6 +410,7 @@ elif mode == "Scanner (universo hoy)":
                             "Acciones":   shares,
                             "Coste":      round(shares * price, 2),
                             "Riesgo":     round(shares * risk_per_share, 2),
+                            **bt_data,
                             "Motivo":     motivo,
                         })
 
@@ -431,11 +454,15 @@ elif mode == "Scanner (universo hoy)":
 
         if signals_found:
             df_signals = pd.DataFrame(signals_found)
-            # Ordenar: CANSLIM por Score desc, RSI(2) por RSI(2) asc
+            # Ordenar por calidad de backtest (Profit Factor desc)
             if estrategia == "CANSLIM":
-                df_signals = df_signals.sort_values("Score", ascending=False).reset_index(drop=True)
+                df_signals = df_signals.sort_values(
+                    ["BT PF", "Score"], ascending=[False, False],
+                ).reset_index(drop=True)
             else:
-                df_signals = df_signals.sort_values("RSI(2)").reset_index(drop=True)
+                df_signals = df_signals.sort_values(
+                    ["BT PF", "RSI(2)"], ascending=[False, True],
+                ).reset_index(drop=True)
 
             top = df_signals.head(MAX_POSITIONS)
             resto = df_signals.iloc[MAX_POSITIONS:]
@@ -490,11 +517,41 @@ elif mode == "Scanner (universo hoy)":
             col_r3.metric("% del capital", f"{pct_capital:.1f}%")
 
             st.subheader(f"TOP {MAX_POSITIONS} — Mejores señales")
-            st.dataframe(top, use_container_width=True, hide_index=True)
+
+            # Tooltips para las columnas
+            col_config = {
+                "Ticker":     st.column_config.TextColumn("Ticker", help="Símbolo bursátil de la acción"),
+                "Nombre":     st.column_config.TextColumn("Nombre", help="Nombre de la empresa"),
+                "Precio":     st.column_config.NumberColumn("Precio", help="Precio de cierre actual ($)", format="%.2f"),
+                "ATR":        st.column_config.NumberColumn("ATR", help="Average True Range (14d) — volatilidad diaria media", format="%.2f"),
+                "Stop Loss":  st.column_config.NumberColumn("Stop Loss", help=f"Precio de stop-loss = Precio − ATR × {ATR_STOP_MULT}", format="%.2f"),
+                "Acciones":   st.column_config.NumberColumn("Acciones", help=f"Nº de acciones a comprar (riesgo {RISK_PER_TRADE*100:.0f}% del capital)"),
+                "Coste":      st.column_config.NumberColumn("Coste", help="Coste total de la posición ($)", format="%.2f"),
+                "Riesgo":     st.column_config.NumberColumn("Riesgo", help="Pérdida máxima si salta el stop-loss ($)", format="%.2f"),
+                "BT Ret%":    st.column_config.NumberColumn("BT Ret%", help="Backtest: retorno total histórico (%) sobre 5 años de datos", format="%.1f"),
+                "BT WR%":     st.column_config.NumberColumn("BT WR%", help="Backtest: porcentaje de operaciones ganadoras", format="%.0f"),
+                "BT PF":      st.column_config.NumberColumn("BT PF", help="Backtest: Profit Factor — ganancia total / pérdida total. >1 = rentable, <1 = pierde", format="%.2f"),
+                "BT Ops":     st.column_config.NumberColumn("BT Ops", help="Backtest: nº total de operaciones históricas"),
+                "Motivo":     st.column_config.TextColumn("Motivo", help="Detalle de por qué se generó la señal de entrada"),
+            }
+
+            if estrategia == "CANSLIM":
+                col_config.update({
+                    "Score":        st.column_config.NumberColumn("Score", help="Puntuación CANSLIM (0-3): N + S + L técnicos"),
+                    "Fuerza Rel.":  st.column_config.NumberColumn("Fuerza Rel.", help="Relative Strength vs SPY. >1 = supera al mercado", format="%.2f"),
+                    "Vol/SMA50":    st.column_config.NumberColumn("Vol/SMA50", help="Volumen actual / media 50 días. >1.5 = ruptura con volumen", format="%.1f"),
+                    "% Max 52sem":  st.column_config.NumberColumn("% Max 52sem", help="Distancia (%) desde el máximo de 52 semanas", format="%.1f"),
+                })
+            else:
+                col_config.update({
+                    "RSI(2)":   st.column_config.NumberColumn("RSI(2)", help="RSI de 2 periodos. <10 = pullback extremo (señal de compra)", format="%.1f"),
+                })
+
+            st.dataframe(top, use_container_width=True, hide_index=True, column_config=col_config)
 
             if len(resto) > 0:
                 with st.expander(f"Ver otras {len(resto)} señales"):
-                    st.dataframe(resto, use_container_width=True, hide_index=True)
+                    st.dataframe(resto, use_container_width=True, hide_index=True, column_config=col_config)
 
             # Botón enviar por Telegram
             if st.button("Enviar TOP por Telegram", use_container_width=True):
