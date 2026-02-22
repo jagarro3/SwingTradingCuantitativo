@@ -10,6 +10,7 @@ RSI_PERIOD = 2              # RSI ultra-corto para detectar pullbacks
 ATR_PERIOD = 14             # volatilidad para stops y position sizing
 
 # --- Señal de entrada ---
+MIN_PRICE = 10.0            # excluir penny stocks (precio mínimo para operar)
 RSI_ENTRY_THRESHOLD = 10    # entrar cuando RSI(2) < este valor
 RSI_EXIT_THRESHOLD = 90     # cerrar cuando RSI(2) > este valor (salida por fortaleza)
 GAP_DOWN_LIMIT = 0.95       # rechazar entrada si close < close_ant * este valor

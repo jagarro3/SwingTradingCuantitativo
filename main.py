@@ -104,6 +104,7 @@ def cmd_scan(args) -> None:
                     shares = 1
                 signals_found.append({
                     "ticker":       ticker,
+                    "nombre":       "",
                     "close":        round(price, 2),
                     "rsi2":         round(last["rsi2"], 1),
                     "atr":          round(atr, 2),
@@ -117,6 +118,13 @@ def cmd_scan(args) -> None:
 
         if (i + 1) % 50 == 0:
             print(f"  Procesados {i+1}/{len(tickers)} — señales: {len(signals_found)}")
+
+    # Resolver nombres de empresas
+    if signals_found:
+        from data.sectors import get_names_bulk
+        names = get_names_bulk([s["ticker"] for s in signals_found])
+        for s in signals_found:
+            s["nombre"] = names.get(s["ticker"], "")
 
     print(f"\n{'='*55}")
     print(f"  SEÑALES DE ENTRADA HOY ({end}): {len(signals_found)}")

@@ -14,7 +14,7 @@ en el motor de backtest.
 """
 
 import pandas as pd
-from config import SMA_TREND, RSI_ENTRY_THRESHOLD, RSI_EXIT_THRESHOLD, GAP_DOWN_LIMIT
+from config import SMA_TREND, RSI_ENTRY_THRESHOLD, RSI_EXIT_THRESHOLD, GAP_DOWN_LIMIT, MIN_PRICE
 
 
 def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
@@ -43,8 +43,11 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
     # 3. Seguridad: no entrar en días con gap bajista > 5%
     no_gap_down = df["Close"] >= df["Close"].shift(1) * GAP_DOWN_LIMIT
 
+    # 4. Filtro de precio: excluir penny stocks
+    price_ok = df["Close"] >= MIN_PRICE
+
     # Señal de entrada
-    entry = trend_ok & rsi_oversold & no_gap_down
+    entry = trend_ok & rsi_oversold & no_gap_down & price_ok
 
     # Señal de salida por fortaleza (RSI alto)
     exit_rsi = df["rsi2"] > RSI_EXIT_THRESHOLD

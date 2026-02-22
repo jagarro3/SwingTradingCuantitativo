@@ -81,8 +81,13 @@ def format_signal(signal: dict) -> str:
     cost = f"{signal['coste']:.2f}"
     risk = f"{signal['riesgo']:.2f}"
 
+    nombre = signal.get('nombre', '')
+    header = f"🟢 *{signal['ticker']}*"
+    if nombre:
+        header += f" — {nombre}"
+
     return (
-        f"🟢 *{signal['ticker']}*\n\n"
+        f"{header}\n\n"
         f"```\n"
         f"Precio    {price:>{w}}\n"
         f"RSI(2)    {rsi:>{w}}\n"

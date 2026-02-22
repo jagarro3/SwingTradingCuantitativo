@@ -232,6 +232,7 @@ elif mode == "Scanner (universo hoy)":
             tickers = get_universe(use_finviz=True)
 
         signals_found = []
+        signal_tickers = []
         for i, t in enumerate(tickers):
             try:
                 df = download_ohlcv(t, scan_start, today)
@@ -248,6 +249,7 @@ elif mode == "Scanner (universo hoy)":
                         shares = 1
                     signals_found.append({
                         "Ticker":     t,
+                        "Nombre":     "",
                         "Precio":     round(price, 2),
                         "RSI(2)":     round(last["rsi2"], 1),
                         "ATR":        round(atr, 2),
@@ -256,6 +258,7 @@ elif mode == "Scanner (universo hoy)":
                         "Coste":      round(shares * price, 2),
                         "Riesgo":     round(shares * risk_per_share, 2),
                     })
+                    signal_tickers.append(t)
             except Exception:
                 pass
 
@@ -264,6 +267,13 @@ elif mode == "Scanner (universo hoy)":
 
         progress.empty()
         status.empty()
+
+        # Resolver nombres de empresas para las señales encontradas
+        if signal_tickers:
+            from data.sectors import get_names_bulk
+            names = get_names_bulk(signal_tickers)
+            for sig in signals_found:
+                sig["Nombre"] = names.get(sig["Ticker"], "")
 
         _save_scanner_cache(today, float(capital), signals_found)
         st.session_state.scanner_signals = signals_found
