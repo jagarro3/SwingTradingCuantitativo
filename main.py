@@ -155,6 +155,28 @@ def cmd_portfolio(args) -> None:
         get_history()
 
 
+def cmd_optimize(args) -> None:
+    from optimizer.grid_search import run_optimization, print_optimization_results
+
+    print(f"\n[Optimización] {args.ticker}  {args.start} → {args.end}")
+    print(f"  Métrica objetivo: {args.metric}")
+
+    def progress(i, total):
+        if i % 10 == 0 or i == total:
+            print(f"  Combinación {i}/{total}...")
+
+    opt = run_optimization(
+        ticker=args.ticker,
+        start=args.start,
+        end=args.end,
+        capital=args.capital,
+        metric=args.metric,
+        top_n=args.top,
+        progress_callback=progress,
+    )
+    print_optimization_results(opt)
+
+
 def cmd_dashboard(_args) -> None:
     import subprocess
     dashboard_path = os.path.join(os.path.dirname(__file__), "dashboard", "app.py")
@@ -205,6 +227,18 @@ def parse_args():
     pf_sub.add_parser("list", help="Ver posiciones abiertas")
     pf_sub.add_parser("history", help="Ver historial de posiciones cerradas")
 
+    # --- optimize ---
+    opt = subparsers.add_parser("optimize", help="Optimizar parámetros por grid search")
+    opt.add_argument("--ticker",  default=DEFAULT_TICKER, help="Ticker para optimizar")
+    opt.add_argument("--start",   default=DEFAULT_START_DATE, help="Fecha inicio YYYY-MM-DD")
+    opt.add_argument("--end",     default=DEFAULT_END_DATE, help="Fecha fin YYYY-MM-DD")
+    opt.add_argument("--capital", default=DEFAULT_CAPITAL, type=float, help="Capital inicial")
+    opt.add_argument("--metric",  default="sharpe_ratio",
+                     choices=["sharpe_ratio", "cagr_pct", "total_return_pct",
+                              "profit_factor", "win_rate_pct", "max_drawdown_pct"],
+                     help="Métrica objetivo (default: sharpe_ratio)")
+    opt.add_argument("--top",     default=20, type=int, help="Top N resultados a mostrar")
+
     # --- dashboard ---
     subparsers.add_parser("dashboard", help="Lanzar dashboard Streamlit")
 
@@ -220,6 +254,8 @@ def main():
         cmd_scan(args)
     elif args.mode == "portfolio":
         cmd_portfolio(args)
+    elif args.mode == "optimize":
+        cmd_optimize(args)
     elif args.mode == "dashboard":
         cmd_dashboard(args)
 

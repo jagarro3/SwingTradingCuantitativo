@@ -7,6 +7,8 @@ Simulación barra a barra (daily) con:
   - Stop-loss fijo: entrada - ATR * ATR_STOP_MULT
   - Trailing stop: max_close - ATR * ATR_TRAIL_MULT (se activa tras ganancia >= ATR_TRAIL_TRIGGER * ATR)
   - Time stop: cerrar tras MAX_HOLD_DAYS barras sin que salte ningún stop
+  - Salida por RSI(2) > 90 (fortaleza)
+  - Comisiones y slippage configurables
 """
 
 from dataclasses import dataclass, field
@@ -15,7 +17,7 @@ import pandas as pd
 from config import (
     RISK_PER_TRADE, MAX_POSITIONS,
     ATR_STOP_MULT, ATR_TRAIL_MULT, ATR_TRAIL_TRIGGER,
-    MAX_HOLD_DAYS,
+    MAX_HOLD_DAYS, COMMISSION_PCT, SLIPPAGE_PCT,
 )
 
 
@@ -53,17 +55,22 @@ class BacktestResult:
     initial_capital: float = 10_000.0
 
 
+def _apply_slippage(price: float, direction: str) -> float:
+    """Aplica slippage: peor precio para el trader."""
+    if direction == "buy":
+        return price * (1 + SLIPPAGE_PCT)
+    else:
+        return price * (1 - SLIPPAGE_PCT)
+
+
+def _commission(value: float) -> float:
+    """Calcula comisión sobre un valor de operación."""
+    return value * COMMISSION_PCT
+
+
 def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> BacktestResult:
     """
     Ejecuta el backtest sobre un DataFrame con indicadores y señales.
-
-    Args:
-        df: DataFrame con columnas signal, Close, High, Low, atr
-        ticker: nombre del activo (para registro)
-        initial_capital: capital inicial en EUR/USD
-
-    Returns:
-        BacktestResult con lista de trades y equity curve
     """
     capital = initial_capital
     equity = []
@@ -75,37 +82,50 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
         if open_trade is not None:
             open_trade.bars_held += 1
             close = row["Close"]
-            high = row["High"]
             low = row["Low"]
             atr = row["atr"]
 
             # 1. Stop-loss fijo (intraday: si el mínimo toca el stop)
             if low <= open_trade.stop_loss:
-                exit_price = open_trade.stop_loss
+                exit_price = _apply_slippage(open_trade.stop_loss, "sell")
+                commission = _commission(exit_price * open_trade.shares)
                 open_trade.exit_date = date
                 open_trade.exit_price = exit_price
                 open_trade.exit_reason = "stop_loss"
-                capital += exit_price * open_trade.shares
+                capital += exit_price * open_trade.shares - commission
                 trades.append(open_trade)
                 open_trade = None
 
             # 2. Trailing stop (intraday)
             elif low <= open_trade.trailing_stop and open_trade.trailing_stop > open_trade.stop_loss:
-                exit_price = open_trade.trailing_stop
+                exit_price = _apply_slippage(open_trade.trailing_stop, "sell")
+                commission = _commission(exit_price * open_trade.shares)
                 open_trade.exit_date = date
                 open_trade.exit_price = exit_price
                 open_trade.exit_reason = "trailing_stop"
-                capital += exit_price * open_trade.shares
+                capital += exit_price * open_trade.shares - commission
                 trades.append(open_trade)
                 open_trade = None
 
-            # 3. Time stop (al cierre)
+            # 3. Salida por RSI alto (fortaleza) - señal = -1
+            elif row.get("signal", 0) == -1:
+                exit_price = _apply_slippage(close, "sell")
+                commission = _commission(exit_price * open_trade.shares)
+                open_trade.exit_date = date
+                open_trade.exit_price = exit_price
+                open_trade.exit_reason = "rsi_exit"
+                capital += exit_price * open_trade.shares - commission
+                trades.append(open_trade)
+                open_trade = None
+
+            # 4. Time stop (al cierre)
             elif open_trade.bars_held >= MAX_HOLD_DAYS:
-                exit_price = close
+                exit_price = _apply_slippage(close, "sell")
+                commission = _commission(exit_price * open_trade.shares)
                 open_trade.exit_date = date
                 open_trade.exit_price = exit_price
                 open_trade.exit_reason = "time_stop"
-                capital += exit_price * open_trade.shares
+                capital += exit_price * open_trade.shares - commission
                 trades.append(open_trade)
                 open_trade = None
 
@@ -130,35 +150,38 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
                 equity.append(capital)
                 continue
 
+            entry_price = _apply_slippage(price, "buy")
+
             # Position sizing: arriesgar RISK_PER_TRADE del capital
             risk_amount = capital * RISK_PER_TRADE
             shares = risk_amount / (ATR_STOP_MULT * atr)
 
             # Cap por máximo de posiciones (no usar más de capital/MAX_POSITIONS)
             max_position_value = capital / MAX_POSITIONS
-            cost = shares * price
+            cost = shares * entry_price
             if cost > max_position_value:
-                shares = max_position_value / price
+                shares = max_position_value / entry_price
 
             if cost > capital:
-                shares = capital / price
+                shares = capital / entry_price
 
             if shares <= 0:
                 equity.append(capital)
                 continue
 
-            capital -= shares * price
+            commission = _commission(shares * entry_price)
+            capital -= shares * entry_price + commission
 
-            stop = price - ATR_STOP_MULT * atr
+            stop = entry_price - ATR_STOP_MULT * atr
 
             open_trade = Trade(
                 ticker=ticker,
                 entry_date=date,
-                entry_price=price,
+                entry_price=entry_price,
                 shares=shares,
                 stop_loss=stop,
-                trailing_stop=stop,     # empieza al nivel del stop fijo
-                highest_close=price,    # inicializar con precio de entrada
+                trailing_stop=stop,
+                highest_close=entry_price,
             )
 
         # Valor total: efectivo + valor de mercado de posición abierta

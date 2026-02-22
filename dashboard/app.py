@@ -27,7 +27,10 @@ import pandas as pd
 import json
 from datetime import date, timedelta
 
-from config import DEFAULT_START_DATE, DEFAULT_END_DATE, DEFAULT_CAPITAL, ATR_STOP_MULT, RISK_PER_TRADE, MAX_POSITIONS, CACHE_DIR
+from config import (
+    DEFAULT_START_DATE, DEFAULT_END_DATE, DEFAULT_CAPITAL,
+    ATR_STOP_MULT, RISK_PER_TRADE, MAX_POSITIONS, CACHE_DIR,
+)
 from data.downloader import download_ohlcv
 from data.universe import get_universe
 from indicators.technical import add_indicators
@@ -83,7 +86,12 @@ st.markdown("Estrategia RSI(2) Trend Pullback + ATR Trailing Stop")
 with st.sidebar:
     st.header("⚙️ Parámetros")
 
-    mode = st.radio("Modo", ["Backtest (un ticker)", "Scanner (universo hoy)", "Portfolio (posiciones)"])
+    mode = st.radio("Modo", [
+        "Backtest (un ticker)",
+        "Scanner (universo hoy)",
+        "Portfolio (posiciones)",
+        "Optimizador",
+    ])
 
     ticker  = st.text_input("Ticker", value="AAPL").upper()
     start   = st.date_input("Fecha inicio", value=pd.Timestamp(DEFAULT_START_DATE))
@@ -197,6 +205,24 @@ elif mode == "Scanner (universo hoy)":
 
     st.subheader(f"Scanner — {today}")
 
+    # Indicador de mercado (SPY vs SMA200)
+    try:
+        from data.market_filter import get_market_status
+        mkt = get_market_status()
+        if mkt["bull_market"]:
+            st.success(
+                f"🟢 Mercado ALCISTA — {mkt['ticker']} ${mkt['close']:.2f} "
+                f"(SMA200: ${mkt['sma200']:.2f}, +{mkt['pct_above_sma']:.1f}%)"
+            )
+        else:
+            st.error(
+                f"🔴 Mercado BAJISTA — {mkt['ticker']} ${mkt['close']:.2f} "
+                f"(SMA200: ${mkt['sma200']:.2f}, {mkt['pct_above_sma']:.1f}%)"
+            )
+            st.warning("El filtro de mercado recomienda NO abrir posiciones nuevas.")
+    except Exception:
+        st.warning("No se pudo obtener el estado del mercado (SPY).")
+
     # Ejecutar scan fresco cuando se pulsa "Ejecutar"
     if run_btn:
         progress = st.progress(0)
@@ -265,6 +291,17 @@ elif mode == "Scanner (universo hoy)":
 
             st.success(f"{len(df_signals)} señales encontradas — TOP {MAX_POSITIONS} mostradas")
 
+            # --- Dashboard de riesgo del TOP ---
+            st.subheader("Exposición del TOP")
+            col_r1, col_r2, col_r3 = st.columns(3)
+            total_coste = top["Coste"].sum()
+            total_riesgo = top["Riesgo"].sum()
+            pct_capital = total_coste / float(capital) * 100
+
+            col_r1.metric("Inversión total", f"${total_coste:,.0f}")
+            col_r2.metric("Riesgo total", f"${total_riesgo:,.0f}")
+            col_r3.metric("% del capital", f"{pct_capital:.1f}%")
+
             st.subheader(f"TOP {MAX_POSITIONS} — Mejores señales")
             st.dataframe(top, use_container_width=True, hide_index=True)
 
@@ -296,3 +333,97 @@ elif mode == "Scanner (universo hoy)":
 elif mode == "Portfolio (posiciones)":
     from portfolio.dashboard_tab import render_portfolio_tab
     render_portfolio_tab()
+
+# ---------------------------------------------------------------
+# MODO OPTIMIZADOR
+# ---------------------------------------------------------------
+elif mode == "Optimizador":
+    st.subheader(f"Optimizador de parámetros — {ticker}")
+
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("Grid de búsqueda")
+        opt_metric = st.selectbox("Métrica objetivo", [
+            "sharpe_ratio", "cagr_pct", "total_return_pct",
+            "profit_factor", "win_rate_pct", "max_drawdown_pct",
+        ])
+        opt_top = st.slider("Top N resultados", 5, 50, 20)
+
+    if run_btn:
+        with st.spinner(f"Optimizando {ticker} — esto puede tardar unos minutos..."):
+            try:
+                from optimizer.grid_search import run_optimization
+
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                def update_progress(i, total):
+                    progress_bar.progress(i / total)
+                    status_text.text(f"Combinación {i}/{total}")
+
+                opt_result = run_optimization(
+                    ticker=ticker,
+                    start=str(start),
+                    end=str(end),
+                    capital=float(capital),
+                    metric=opt_metric,
+                    top_n=opt_top,
+                    progress_callback=update_progress,
+                )
+
+                progress_bar.empty()
+                status_text.empty()
+
+                st.session_state.opt_result = opt_result
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.stop()
+
+    if "opt_result" in st.session_state:
+        opt_result = st.session_state.opt_result
+
+        # Mejor combinación
+        st.success(
+            f"Mejor {opt_result.metric_name}: **{opt_result.best_metric_value:.4f}** "
+            f"({opt_result.total_combinations} combinaciones probadas)"
+        )
+
+        st.subheader("Mejor combinación de parámetros")
+        param_cols = st.columns(len(opt_result.best_params))
+        for i, (k, v) in enumerate(opt_result.best_params.items()):
+            param_cols[i].metric(k, f"{v}")
+
+        # Tabla de resultados
+        st.subheader(f"Top {len(opt_result.results_df)} resultados")
+        st.dataframe(opt_result.results_df, use_container_width=True, hide_index=True)
+
+        # Heatmap: RSI_ENTRY vs ATR_STOP_MULT coloreado por métrica
+        df_r = opt_result.results_df
+        if "RSI_ENTRY_THRESHOLD" in df_r.columns and "ATR_STOP_MULT" in df_r.columns:
+            st.subheader(f"Heatmap: RSI Entry vs ATR Stop ({opt_result.metric_name})")
+            try:
+                pivot = df_r.pivot_table(
+                    index="RSI_ENTRY_THRESHOLD",
+                    columns="ATR_STOP_MULT",
+                    values=opt_result.metric_name,
+                    aggfunc="mean",
+                )
+                fig_heat = go.Figure(data=go.Heatmap(
+                    z=pivot.values,
+                    x=[str(c) for c in pivot.columns],
+                    y=[str(r) for r in pivot.index],
+                    colorscale="RdYlGn",
+                    text=pivot.values.round(3),
+                    texttemplate="%{text}",
+                    hovertemplate="ATR_STOP: %{x}<br>RSI_ENTRY: %{y}<br>Valor: %{z:.3f}<extra></extra>",
+                ))
+                fig_heat.update_layout(
+                    template="plotly_dark", height=400,
+                    xaxis_title="ATR_STOP_MULT",
+                    yaxis_title="RSI_ENTRY_THRESHOLD",
+                )
+                st.plotly_chart(fig_heat, use_container_width=True)
+            except Exception:
+                pass
+    else:
+        st.info(f"Configura los parámetros y pulsa **Ejecutar** para optimizar {ticker}.")
