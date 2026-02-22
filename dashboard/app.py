@@ -183,7 +183,7 @@ with st.sidebar:
     end     = st.date_input("Fecha fin",    value=pd.Timestamp.today())
     capital = st.number_input("Capital inicial", min_value=1_000, value=int(DEFAULT_CAPITAL), step=1_000)
 
-    run_btn = st.button("Ejecutar", type="primary", use_container_width=True)
+    run_btn = st.button("Ejecutar", type="primary", width="stretch")
 
 strat_key = _strategy_key(estrategia)
 add_ind, gen_signals = _get_pipeline(estrategia)
@@ -307,7 +307,7 @@ if mode == "Backtest (un ticker)":
 
         fig.update_layout(template="plotly_dark", height=700,
                           xaxis_rangeslider_visible=False, showlegend=True)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         # --- Equity curve ---
         st.subheader("Equity Curve y Drawdown")
@@ -326,7 +326,7 @@ if mode == "Backtest (un ticker)":
                                     line=dict(color="#ef5350", width=1), name="Drawdown %"),
                          row=2, col=1)
         fig_eq.update_layout(template="plotly_dark", height=450)
-        st.plotly_chart(fig_eq, use_container_width=True)
+        st.plotly_chart(fig_eq, width="stretch")
 
         # --- Tabla de trades ---
         if not df_trades.empty:
@@ -334,7 +334,7 @@ if mode == "Backtest (un ticker)":
             df_show = df_trades.copy()
             df_show["pnl_pct"] = (df_show["pnl_pct"] * 100).round(2)
             df_show["pnl"]     = df_show["pnl"].round(2)
-            st.dataframe(df_show, use_container_width=True)
+            st.dataframe(df_show, width="stretch")
         else:
             st.info("No se registraron operaciones en el periodo.")
 
@@ -672,14 +672,14 @@ elif mode == "Scanner (universo hoy)":
                     "RSI(2)":   st.column_config.NumberColumn("RSI(2)", help="RSI de 2 periodos. <10 = pullback extremo (señal de compra)", format="%.1f"),
                 })
 
-            st.dataframe(top, use_container_width=True, hide_index=True, column_config=col_config)
+            st.dataframe(top, width="stretch", hide_index=True, column_config=col_config)
 
             if len(resto) > 0:
                 with st.expander(f"Ver otras {len(resto)} señales"):
-                    st.dataframe(resto, use_container_width=True, hide_index=True, column_config=col_config)
+                    st.dataframe(resto, width="stretch", hide_index=True, column_config=col_config)
 
             # Botón enviar por Telegram
-            if st.button("Enviar TOP por Telegram", use_container_width=True):
+            if st.button("Enviar TOP por Telegram", width="stretch"):
                 try:
                     from alerts.notifier import send_signals
                     top_signals = top.to_dict("records")
@@ -775,7 +775,7 @@ elif mode == "Optimizador":
                 param_cols[i].metric(k, f"{v}")
 
             st.subheader(f"Top {len(opt_result.results_df)} resultados")
-            st.dataframe(opt_result.results_df, use_container_width=True, hide_index=True)
+            st.dataframe(opt_result.results_df, width="stretch", hide_index=True)
 
             df_r = opt_result.results_df
             if "RSI_ENTRY_THRESHOLD" in df_r.columns and "ATR_STOP_MULT" in df_r.columns:
@@ -801,7 +801,7 @@ elif mode == "Optimizador":
                         xaxis_title="ATR_STOP_MULT",
                         yaxis_title="RSI_ENTRY_THRESHOLD",
                     )
-                    st.plotly_chart(fig_heat, use_container_width=True)
+                    st.plotly_chart(fig_heat, width="stretch")
                 except Exception:
                     pass
         else:
