@@ -61,8 +61,27 @@ def _strategy_key(estrategia: str) -> str:
 
 
 # ---------------------------------------------------------------
-# Cache del scanner
+# Cache del scanner — se invalida si cambia la estrategia
 # ---------------------------------------------------------------
+def _strategy_version(strategy: str) -> str:
+    """Hash de los archivos de estrategia para invalidar cache al cambiar código."""
+    import hashlib
+    root = os.path.dirname(os.path.dirname(__file__))
+    files = ["config.py"]
+    if strategy == "canslim":
+        files += ["strategy/canslim.py", "indicators/canslim_indicators.py"]
+    else:
+        files += ["strategy/momentum.py", "indicators/technical.py"]
+    h = hashlib.md5()
+    for f in files:
+        path = os.path.join(root, f)
+        try:
+            h.update(open(path, "rb").read())
+        except FileNotFoundError:
+            pass
+    return h.hexdigest()[:8]
+
+
 def _scanner_cache_path(scan_date: str, strategy: str) -> str:
     cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), CACHE_DIR)
     os.makedirs(cache_dir, exist_ok=True)
@@ -78,6 +97,8 @@ def _load_scanner_cache(scan_date: str, capital: float, strategy: str):
             data = json.load(f)
         if data.get("capital") != capital:
             return None
+        if data.get("version") != _strategy_version(strategy):
+            return None
         return data["signals"]
     except Exception:
         return None
@@ -86,7 +107,12 @@ def _load_scanner_cache(scan_date: str, capital: float, strategy: str):
 def _save_scanner_cache(scan_date: str, capital: float, signals: list, strategy: str):
     path = _scanner_cache_path(scan_date, strategy)
     with open(path, "w") as f:
-        json.dump({"date": scan_date, "capital": capital, "signals": signals}, f, indent=2)
+        json.dump({
+            "date": scan_date,
+            "capital": capital,
+            "version": _strategy_version(strategy),
+            "signals": signals,
+        }, f, indent=2)
 
 
 # ---------------------------------------------------------------
