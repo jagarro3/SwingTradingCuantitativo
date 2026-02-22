@@ -463,6 +463,7 @@ elif mode == "Scanner (universo hoy)":
                         "**Entrada (todas a la vez):**\n"
                         f"- Close > SMA({SMA_TREND})\n"
                         f"- SMA({SMA_TREND}) en pendiente positiva (20d)\n"
+                        f"- Retorno 52 semanas > 0%\n"
                         f"- RSI(2) < {RSI_ENTRY_THRESHOLD}\n"
                         f"- Sin gap bajista > {int((1-GAP_DOWN_LIMIT)*100)}%\n"
                         f"- Precio ≥ ${MIN_PRICE:.0f}\n\n"
