@@ -283,7 +283,7 @@ if mode == "Backtest (un ticker)":
 # ---------------------------------------------------------------
 elif mode == "Scanner (universo hoy)":
     today = date.today().strftime("%Y-%m-%d")
-    scan_start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
+    scan_start = (date.today() - timedelta(days=600)).strftime("%Y-%m-%d")
 
     st.subheader(f"Scanner {estrategia} — {today}")
 

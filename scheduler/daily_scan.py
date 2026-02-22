@@ -47,7 +47,7 @@ def _get_pipeline(strategy: str):
 
 def run_daily_scan(capital: float = DEFAULT_CAPITAL, strategy: str = "rsi2"):
     today = date.today().strftime("%Y-%m-%d")
-    scan_start = (date.today() - timedelta(days=365)).strftime("%Y-%m-%d")
+    scan_start = (date.today() - timedelta(days=600)).strftime("%Y-%m-%d")
     strat_label = "CANSLIM" if strategy == "canslim" else "RSI(2)"
 
     add_ind, gen_sig = _get_pipeline(strategy)
