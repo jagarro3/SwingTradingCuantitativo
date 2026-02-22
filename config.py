@@ -31,9 +31,11 @@ DEFAULT_START_DATE = "2010-01-01"
 DEFAULT_END_DATE = "2025-01-01"
 DEFAULT_TICKER = "AAPL"
 
-# --- Comisiones ---
+# --- Comisiones y divisa ---
 COMMISSION_PCT = 0.001      # 0.1% por operación (ida y vuelta = 0.2%)
 SLIPPAGE_PCT = 0.0005       # 0.05% de slippage por ejecución
+DEFAULT_COMMISSION_EUR = 1.0  # comisión por defecto por operación (EUR)
+BASE_CURRENCY = "EUR"         # moneda base del inversor
 
 # --- CANSLIM ---
 CANSLIM_HIGH_PROXIMITY = 0.85      # N: precio >= 85% del máximo 52 semanas

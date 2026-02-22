@@ -124,7 +124,9 @@ def _replay_bars(position: Position, df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------
 
 def add_position(ticker: str, entry_price: float, shares: int,
-                 entry_date: Optional[str] = None) -> Position:
+                 entry_date: Optional[str] = None,
+                 commission: float = 0.0,
+                 eur_usd_rate: float = 1.0) -> Position:
     ticker = ticker.upper()
     if entry_date is None:
         entry_date = date.today().strftime("%Y-%m-%d")
@@ -161,6 +163,8 @@ def add_position(ticker: str, entry_price: float, shares: int,
         trailing_stop=round(stop_loss, 2),
         highest_close=entry_price,
         last_checked=entry_date,
+        commission=commission,
+        eur_usd_rate=eur_usd_rate,
     )
 
     positions.append(pos)
