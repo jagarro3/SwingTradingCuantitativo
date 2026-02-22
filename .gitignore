@@ -1,9 +1,33 @@
+# === Proyecto Swing Trader ===
 .env
 cache/
 reports/output/
-__pycache__/
-*.pyc
-.venv/
-venv/
 portfolio/positions.json
 .claude/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
