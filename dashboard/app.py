@@ -206,7 +206,7 @@ if mode == "Backtest (un ticker)":
                                 "Los fundamentales (C, A, I) se aplican en el Scanner con Finviz.")
                     else:
                         st.info("Minervini Trend Template: MA alignment + RSI(14) pullback. "
-                                "Hold hasta 40 días.")
+                                f"Hold hasta {MINERVINI_MAX_HOLD_DAYS} días.")
                 else:
                     df = add_ind(df)
 
@@ -545,14 +545,15 @@ elif mode == "Scanner (universo hoy)":
 
         if signals_found:
             df_signals = pd.DataFrame(signals_found)
-            # Ordenar por calidad de backtest (Profit Factor desc)
-            if estrategia == "CANSLIM":
+            # Ordenar por calidad de backtest
+            if estrategia == "Minervini":
+                # Priorizar retorno con mínimo de operaciones fiable
                 df_signals = df_signals.sort_values(
-                    ["BT PF", "Score"], ascending=[False, False],
+                    ["BT Ret%", "BT PF", "Score"], ascending=[False, False, False],
                 ).reset_index(drop=True)
-            elif estrategia == "Minervini":
+            elif estrategia == "CANSLIM":
                 df_signals = df_signals.sort_values(
-                    ["BT PF", "Score"], ascending=[False, False],
+                    ["BT Ret%", "BT PF", "Score"], ascending=[False, False, False],
                 ).reset_index(drop=True)
             else:
                 df_signals = df_signals.sort_values(
