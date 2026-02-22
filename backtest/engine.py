@@ -26,7 +26,7 @@ class Trade:
     ticker: str
     entry_date: pd.Timestamp
     entry_price: float
-    shares: float
+    shares: int
     stop_loss: float
     trailing_stop: float
     highest_close: float
@@ -34,18 +34,26 @@ class Trade:
     exit_date: Optional[pd.Timestamp] = None
     exit_price: Optional[float] = None
     exit_reason: Optional[str] = None
+    commission_entry: float = 0.0   # comisión pagada al entrar
+    commission_exit: float = 0.0    # comisión pagada al salir
 
     @property
     def pnl(self) -> float:
+        """P&L neto (descontando comisiones de entrada y salida)."""
         if self.exit_price is None:
             return 0.0
-        return (self.exit_price - self.entry_price) * self.shares
+        gross = (self.exit_price - self.entry_price) * self.shares
+        return gross - self.commission_entry - self.commission_exit
 
     @property
     def pnl_pct(self) -> float:
+        """P&L % sobre el coste total de entrada (precio + comisión)."""
         if self.exit_price is None:
             return 0.0
-        return (self.exit_price - self.entry_price) / self.entry_price
+        cost = self.entry_price * self.shares + self.commission_entry
+        if cost <= 0:
+            return 0.0
+        return self.pnl / cost
 
 
 @dataclass
@@ -92,6 +100,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
                 open_trade.exit_date = date
                 open_trade.exit_price = exit_price
                 open_trade.exit_reason = "stop_loss"
+                open_trade.commission_exit = commission
                 capital += exit_price * open_trade.shares - commission
                 trades.append(open_trade)
                 open_trade = None
@@ -103,6 +112,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
                 open_trade.exit_date = date
                 open_trade.exit_price = exit_price
                 open_trade.exit_reason = "trailing_stop"
+                open_trade.commission_exit = commission
                 capital += exit_price * open_trade.shares - commission
                 trades.append(open_trade)
                 open_trade = None
@@ -114,6 +124,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
                 open_trade.exit_date = date
                 open_trade.exit_price = exit_price
                 open_trade.exit_reason = "rsi_exit"
+                open_trade.commission_exit = commission
                 capital += exit_price * open_trade.shares - commission
                 trades.append(open_trade)
                 open_trade = None
@@ -125,6 +136,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
                 open_trade.exit_date = date
                 open_trade.exit_price = exit_price
                 open_trade.exit_reason = "time_stop"
+                open_trade.commission_exit = commission
                 capital += exit_price * open_trade.shares - commission
                 trades.append(open_trade)
                 open_trade = None
@@ -158,12 +170,14 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
 
             # Cap por máximo de posiciones (no usar más de capital/MAX_POSITIONS)
             max_position_value = capital / MAX_POSITIONS
-            cost = shares * entry_price
-            if cost > max_position_value:
+            if shares * entry_price > max_position_value:
                 shares = max_position_value / entry_price
 
-            if cost > capital:
+            if shares * entry_price > capital:
                 shares = capital / entry_price
+
+            # Redondear a entero (no se compran fracciones de acción)
+            shares = int(shares)
 
             if shares <= 0:
                 equity.append(capital)
@@ -182,6 +196,7 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
                 stop_loss=stop,
                 trailing_stop=stop,
                 highest_close=entry_price,
+                commission_entry=commission,
             )
 
         # Valor total: efectivo + valor de mercado de posición abierta
@@ -191,10 +206,13 @@ def run_backtest(df: pd.DataFrame, ticker: str, initial_capital: float) -> Backt
     # Cerrar posición abierta al final del periodo
     if open_trade is not None:
         last_row = df.iloc[-1]
+        exit_price = _apply_slippage(last_row["Close"], "sell")
+        commission = _commission(exit_price * open_trade.shares)
         open_trade.exit_date = df.index[-1]
-        open_trade.exit_price = last_row["Close"]
+        open_trade.exit_price = exit_price
         open_trade.exit_reason = "end_of_period"
-        capital += open_trade.exit_price * open_trade.shares
+        open_trade.commission_exit = commission
+        capital += exit_price * open_trade.shares - commission
         trades.append(open_trade)
 
     equity_series = pd.Series(equity, index=df.index, name="equity")
@@ -226,5 +244,6 @@ def trades_to_dataframe(trades: list[Trade]) -> pd.DataFrame:
             "exit_reason":   t.exit_reason,
             "pnl":           t.pnl,
             "pnl_pct":       t.pnl_pct,
+            "commission":    t.commission_entry + t.commission_exit,
         })
     return pd.DataFrame(rows)

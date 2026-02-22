@@ -68,7 +68,7 @@ def compute_metrics(result: BacktestResult) -> dict:
     win_rate = len(winners) / len(df_trades) * 100
     gross_profit = winners["pnl"].sum()
     gross_loss   = abs(losers["pnl"].sum())
-    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float("inf")
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else 99.99
     avg_pnl_pct   = df_trades["pnl_pct"].mean() * 100
     avg_bars_held = df_trades["bars_held"].mean() if "bars_held" in df_trades.columns else 0.0
 
