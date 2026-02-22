@@ -371,15 +371,15 @@ elif mode == "Scanner (universo hoy)":
         status   = st.empty()
         progress = st.progress(0)
 
-        status.text("Obteniendo universo de acciones desde Finviz...")
-        tickers = get_universe(use_finviz=True, strategy=strat_key)
+        with st.spinner("Obteniendo universo de acciones desde Finviz..."):
+            tickers = get_universe(use_finviz=True, strategy=strat_key)
         status.text(f"{len(tickers)} candidatos obtenidos. Analizando señales...")
 
         # CANSLIM y Minervini necesitan SPY para relative strength
         spy_df = None
         if estrategia in ("CANSLIM", "Minervini"):
-            status.text(f"{len(tickers)} candidatos. Descargando SPY para relative strength...")
-            spy_df = download_ohlcv("SPY", scan_start, today)
+            with st.spinner(f"{len(tickers)} candidatos. Descargando SPY para relative strength..."):
+                spy_df = download_ohlcv("SPY", scan_start, today)
 
         signals_found = []
         signal_tickers = []
