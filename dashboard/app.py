@@ -307,15 +307,17 @@ elif mode == "Scanner (universo hoy)":
 
     # Ejecutar scan fresco cuando se pulsa "Ejecutar"
     if run_btn:
-        progress = st.progress(0)
         status   = st.empty()
+        progress = st.progress(0)
 
-        with st.spinner(f"Obteniendo universo de acciones ({estrategia})..."):
-            tickers = get_universe(use_finviz=True, strategy=strat_key)
+        status.text("Obteniendo universo de acciones desde Finviz...")
+        tickers = get_universe(use_finviz=True, strategy=strat_key)
+        status.text(f"{len(tickers)} candidatos obtenidos. Analizando señales...")
 
         # CANSLIM necesita SPY para relative strength
         spy_df = None
         if estrategia == "CANSLIM":
+            status.text(f"{len(tickers)} candidatos. Descargando SPY para relative strength...")
             spy_df = download_ohlcv("SPY", scan_start, today)
 
         signals_found = []
