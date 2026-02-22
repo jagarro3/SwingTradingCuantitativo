@@ -44,10 +44,14 @@ class Position:
         rate = current_usd_eur if current_usd_eur else self.usd_eur_rate
         return self.pnl_net(current_price) * rate
 
+    def cost_usd(self) -> float:
+        """Coste total en USD (acciones + comisión de entrada)."""
+        return self.entry_price * self.shares + self.commission
+
     def cost_eur(self, current_usd_eur: Optional[float] = None) -> float:
-        """Coste de entrada en EUR."""
+        """Coste total en EUR (acciones + comisión de entrada, convertido)."""
         rate = current_usd_eur if current_usd_eur else self.usd_eur_rate
-        return self.entry_price * self.shares * rate
+        return self.cost_usd() * rate
 
     def to_dict(self) -> dict:
         return asdict(self)

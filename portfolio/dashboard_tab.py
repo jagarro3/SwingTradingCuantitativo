@@ -58,7 +58,7 @@ def render_portfolio_tab():
             pnl_usd = pos.pnl(current_price)
             pnl_pct = pos.pnl_pct(current_price)
             pnl_eur = pos.pnl_eur(current_price, usd_eur)
-            cost_eur = pos.cost_eur(usd_eur)
+            cost_eur = pos.cost_eur()  # usa rate de entrada
             days_left = max(0, MAX_HOLD_DAYS - pos.bars_held)
 
             rows.append({
@@ -67,11 +67,13 @@ def render_portfolio_tab():
                 "Acciones": pos.shares,
                 "Entrada $": pos.entry_price,
                 "Actual $": round(current_price, 2),
+                "Neto $": round(pos.cost_usd(), 2),
+                "Neto €": round(cost_eur, 2),
                 "P&L $": round(pnl_usd, 2),
                 "P&L €": round(pnl_eur, 2),
                 "P&L %": round(pnl_pct, 1),
-                "Coste €": round(cost_eur, 2),
                 "Comisión $": pos.commission,
+                "USD→EUR": pos.usd_eur_rate,
                 "Stop": pos.stop_loss,
                 "Trail": pos.trailing_stop,
                 "Dia": f"{pos.bars_held}/{MAX_HOLD_DAYS}",
@@ -82,15 +84,15 @@ def render_portfolio_tab():
 
         total_pnl_usd = sum(r["P&L $"] for r in rows)
         total_pnl_eur = sum(r["P&L €"] for r in rows)
-        total_invested_usd = sum(pos.shares * pos.entry_price for pos in open_pos)
-        total_invested_eur = sum(r["Coste €"] for r in rows)
-        total_commission = sum(pos.commission * 2 for pos in open_pos)
+        total_neto_usd = sum(r["Neto $"] for r in rows)
+        total_neto_eur = sum(r["Neto €"] for r in rows)
+        total_commission = sum(pos.commission for pos in open_pos)
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Invertido", f"€{total_invested_eur:,.0f}", f"${total_invested_usd:,.0f}")
+        c1.metric("Invertido", f"€{total_neto_eur:,.2f}", f"${total_neto_usd:,.2f}")
         c2.metric("P&L (USD)", f"${total_pnl_usd:+,.2f}")
         c3.metric("P&L (EUR)", f"€{total_pnl_eur:+,.2f}")
-        c4.metric("Comisiones $", f"${total_commission:,.2f}")
+        c4.metric("Comisión entrada", f"${total_commission:,.2f}")
 
         # --- Editar / Eliminar posición abierta ---
         st.divider()
@@ -207,11 +209,12 @@ def render_portfolio_tab():
         new_commission = col5.number_input("Comisión ($)", min_value=0.0, value=commission, step=0.50, format="%.2f")
         new_usd_eur = col6.number_input("USD→EUR", min_value=0.30, max_value=1.50, value=usd_eur, step=0.000001, format="%.6f")
 
-        preview_cost_usd = new_price * new_shares
+        preview_cost_usd = new_price * new_shares + new_commission
         preview_cost_eur = preview_cost_usd * new_usd_eur
         st.caption(
-            f"Coste: ${preview_cost_usd:,.2f} → €{preview_cost_eur:,.2f} "
-            f"(+ ${new_commission:.2f} comisión entrada)"
+            f"Importe neto: ${preview_cost_usd:,.2f} "
+            f"(${new_price * new_shares:,.2f} + ${new_commission:.2f} comisión) "
+            f"→ €{preview_cost_eur:,.2f}"
         )
 
         submitted = st.form_submit_button("Registrar", use_container_width=True)
@@ -223,11 +226,11 @@ def render_portfolio_tab():
                     commission=new_commission,
                     usd_eur_rate=new_usd_eur,
                 )
-                cost_eur = pos.cost_eur(new_usd_eur)
+                cost_eur = pos.cost_eur()
                 st.success(
                     f"Posición registrada: {pos.id} | "
                     f"Stop: ${pos.stop_loss:.2f} | "
-                    f"Coste: €{cost_eur:,.2f} + ${new_commission:.2f} comisión"
+                    f"Importe neto: €{cost_eur:,.2f}"
                 )
                 st.rerun()
             except Exception as e:
